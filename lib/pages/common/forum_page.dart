@@ -7,6 +7,7 @@ import '../../services/forum_service.dart';
 import '../../services/user_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../club/create_event_page.dart';
+import 'comment_sheet.dart';
 
 class ForumPage extends StatefulWidget {
   const ForumPage({super.key});
@@ -29,26 +30,9 @@ class _ForumPageState extends State<ForumPage> {
   String? _filterEventStatus;
 
   // --- DANH SÁCH DỮ LIỆU ---
-  final List<String> _knowledgeTopics = [
-    "Mẹo sống xanh",
-    "Tin tức môi trường",
-    "Hỏi đáp",
-    "Góc thảo luận",
-  ];
-  final List<String> _productCategories = [
-    "Đồ tái chế",
-    "Đồ Handmade",
-    "Nguyên liệu thô",
-    "Dụng cụ làm vườn",
-    "Khác",
-  ];
-  final List<String> _eventCategories = [
-    "Hoạt động tình nguyện",
-    "Workshop/Hội thảo",
-    "Thu gom rác",
-    "Cuộc thi",
-    "Khác",
-  ];
+  List<String> _knowledgeTopics = [];
+  List<String> _productCategories = [];
+  List<String> _eventCategories = [];
   final List<String> _eventStatuses = [
     "Sắp diễn ra",
     "Đang diễn ra",
@@ -64,13 +48,169 @@ class _ForumPageState extends State<ForumPage> {
   // Hàm lấy dữ liệu từ Server
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
-    List<ForumPost> fetchedPosts = await ForumService.fetchPosts();
-    if (mounted) {
-      setState(() {
-        _posts = fetchedPosts;
-        _isLoading = false;
-      });
+
+    try {
+      final results = await Future.wait([
+        ForumService.fetchPosts(), // 0
+        ForumService.fetchConfigList('topic'), // 1
+        ForumService.fetchConfigList('product_type'), // 2
+        // ForumService.fetchConfigList('event_type'),
+      ]);
+
+      if (mounted) {
+        setState(() {
+          _posts = results[0] as List<ForumPost>;
+          _knowledgeTopics = results[1] as List<String>;
+          if (!_knowledgeTopics.contains("Khác")) _knowledgeTopics.add("Khác");
+          _productCategories = results[2] as List<String>;
+          if (!_productCategories.contains("Khác"))
+            _productCategories.add("Khác");
+          _eventCategories = List.from(_knowledgeTopics);
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print("Lỗi tải dữ liệu: $e");
+      if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  // Hàm mở trang tìm kiếm
+  void _confirmDeletePost(String postId, int index) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20), // Bo tròn mềm mại
+        ),
+        elevation: 5,
+        backgroundColor: Colors.white,
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 1. Icon cảnh báo
+              Container(
+                padding: const EdgeInsets.all(15),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50, // Nền đỏ nhạt
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.delete_outline,
+                  size: 40,
+                  color: Colors.red, // Icon đỏ đậm
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // 2. Tiêu đề & Nội dung
+              const Text(
+                "Xóa bài viết?",
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                "Bạn có chắc chắn muốn xóa bài viết này không?\nHành động này không thể hoàn tác.",
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.black54,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 25),
+
+              // 3. Các nút bấm
+              Row(
+                children: [
+                  // Nút Hủy
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        side: BorderSide(color: Colors.grey.shade300),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: const Text(
+                        "Hủy",
+                        style: TextStyle(
+                          color: Colors.black87,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 15),
+                  // Nút Xóa
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        Navigator.pop(context); // Đóng dialog trước
+
+                        // Gọi API Xóa
+                        final success = await ForumService.deletePost(postId);
+
+                        if (success) {
+                          setState(() {
+                            // Xóa item khỏi danh sách đang hiển thị để UI cập nhật ngay
+                            _posts.removeAt(index);
+                          });
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: const Text("Đã xóa bài viết"),
+                                backgroundColor: Colors.green,
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                margin: const EdgeInsets.all(10),
+                              ),
+                            );
+                          }
+                        } else {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text("Xóa thất bại (Lỗi server)"),
+                              ),
+                            );
+                          }
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(
+                          0xFFD32F2F,
+                        ), // Màu đỏ chuẩn
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: const Text(
+                        "Xóa ngay",
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   String _getShortName(String fullName) {
@@ -110,8 +250,29 @@ class _ForumPageState extends State<ForumPage> {
   }
 
   void _showCommentSheet(BuildContext context, int postIndex) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Tính năng bình luận (Coming soon)")),
+    final post = _posts[postIndex];
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => CommentSheet(
+        postId: post.id,
+        initialComments: post.commentsList ?? [],
+        onCommentChanged: (newCommentsList) {
+          setState(() {
+            _posts[postIndex].commentsList = newCommentsList;
+
+            // Logic đếm tổng comment (Cha + Con)
+            int total = newCommentsList.length;
+            for (var cmt in newCommentsList) {
+              if (cmt['replies'] != null) {
+                total += (cmt['replies'] as List).length;
+              }
+            }
+            _posts[postIndex].comments = total;
+          });
+        },
+      ),
     );
   }
 
@@ -153,14 +314,13 @@ class _ForumPageState extends State<ForumPage> {
                   onTap: () => _navigateToCreatePost("Sản phẩm"),
                 ),
 
-                // 👇 NÚT 3: SỰ KIỆN (CHỈ HIỆN KHI LÀ CLB)
                 if (role == 'club') ...[
                   const SizedBox(height: 15),
                   _buildTypeButton(
                     label: "Sự kiện",
                     color: const Color(0xFFFFF3E0), // Màu cam nhạt
                     textColor: Colors.black,
-                    onTap: _navigateToCreateEvent, // Hàm chuyển hướng mới
+                    onTap: _navigateToCreateEvent,
                   ),
                 ],
               ],
@@ -173,37 +333,18 @@ class _ForumPageState extends State<ForumPage> {
 
   Future<void> _navigateToCreatePost(String type) async {
     Navigator.pop(context);
-    final newPost = await Navigator.push(
+    final result = await Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => CreatePostPage(postType: type)),
     );
 
-    if (newPost != null && newPost is ForumPost) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Đang lưu bài viết...")));
-      bool success = await ForumService.createPost(newPost);
-      if (success) {
-        await _loadData();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Đăng bài thành công!"),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Lỗi lưu bài viết"),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+    if (result == true) {
+      await _loadData();
     }
   }
 
   void _navigateToCreateEvent() {
-    Navigator.pop(context); // Đóng Dialog chọn loại
+    Navigator.pop(context);
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const CreateEventPage()),
@@ -281,7 +422,6 @@ class _ForumPageState extends State<ForumPage> {
                     ],
                   ),
                   const SizedBox(height: 20),
-
                   if (tempCategory == "Kiến thức") ...[
                     const Text(
                       "Chủ đề bài viết",
@@ -394,7 +534,6 @@ class _ForumPageState extends State<ForumPage> {
                       }).toList(),
                     ),
                   ],
-
                   const SizedBox(height: 30),
                   SizedBox(
                     width: double.infinity,
@@ -458,39 +597,48 @@ class _ForumPageState extends State<ForumPage> {
   }
 
   bool _checkEventStatus(ForumPost post, String statusFilter) {
-    // 1. Nếu bài viết không có ngày tổ chức -> Bỏ qua hoặc coi như không khớp
-    if (post.eventDate == null || post.eventDate!.isEmpty) return false;
+    // 1. Kiểm tra null
+    if (post.eventDate == null || post.eventDate!.isEmpty) {
+      return false;
+    }
 
     try {
-      // 2. Chuyển đổi ngày từ String "dd/mm/yyyy" sang DateTime
-      List<String> parts = post.eventDate!.split('/');
-      if (parts.length != 3) return false;
+      // 2. Làm sạch chuỗi (Xóa khoảng trắng thừa)
+      String cleanDate = post.eventDate!.trim();
 
-      // Tạo đối tượng ngày của sự kiện (Giả sử kết thúc vào cuối ngày đó)
+      if (cleanDate.contains('-')) {
+        cleanDate = cleanDate.replaceAll('-', '/');
+      }
+
+      List<String> parts = cleanDate.split('/');
+      if (parts.length != 3) {
+        return false;
+      }
+
+      // 4. Tạo DateTime (Năm, Tháng, Ngày)
       DateTime eventDate = DateTime(
-        int.parse(parts[2]), // Năm
-        int.parse(parts[1]), // Tháng
-        int.parse(parts[0]), // Ngày
-        23,
-        59,
-        59, // Cuối ngày
+        int.parse(parts[2]),
+        int.parse(parts[1]),
+        int.parse(parts[0]),
       );
 
+      // 5. Lấy ngày hôm nay (Reset giờ về 00:00:00)
       DateTime now = DateTime.now();
+      DateTime today = DateTime(now.year, now.month, now.day);
 
-      // 3. So sánh với hiện tại
+      // 6. So sánh
       if (statusFilter == "Đã kết thúc") {
-        return now.isAfter(eventDate); // Hiện tại > Ngày sự kiện
+        // Sự kiện < Hôm nay (Nghiêm ngặt)
+        // Ví dụ: 02/02 < 03/02 -> True
+        return eventDate.isBefore(today);
       } else if (statusFilter == "Sắp diễn ra") {
-        return now.isBefore(eventDate); // Hiện tại < Ngày sự kiện
+        // Sự kiện > Hôm nay
+        return eventDate.isAfter(today);
       } else if (statusFilter == "Đang diễn ra") {
-        // Logic tương đối: Nếu là ngày hôm nay thì coi là đang diễn ra
-        return now.year == eventDate.year &&
-            now.month == eventDate.month &&
-            now.day == eventDate.day;
+        // Sự kiện == Hôm nay
+        return eventDate.isAtSameMomentAs(today);
       }
     } catch (e) {
-      print("Lỗi parse ngày: $e");
       return false;
     }
     return true;
@@ -498,31 +646,31 @@ class _ForumPageState extends State<ForumPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Logic lọc
     final displayPosts = _posts.where((post) {
-      if (_filterCategory != "All" && post.tagName != _filterCategory)
+      if (_filterCategory != "All" && post.tagName != _filterCategory) {
         return false;
+      }
       if (_filterCategory == "Kiến thức" &&
           _filterTopic != null &&
-          post.topic != _filterTopic)
+          post.topic != _filterTopic) {
         return false;
+      }
       if (_filterCategory == "Sản phẩm") {
-        if (_filterProductType != null && post.category != _filterProductType)
+        if (_filterProductType != null && post.category != _filterProductType) {
           return false;
+        }
         if (post.price != null &&
             (post.price! < _filterPriceRange.start ||
-                post.price! > _filterPriceRange.end))
+                post.price! > _filterPriceRange.end)) {
           return false;
+        }
       }
       if (_filterCategory == "Sự kiện") {
-        // Lọc loại sự kiện (Workshop, Tình nguyện...)
-        if (_filterEventType != null && post.category != _filterEventType) {
+        if (_filterEventType != null && post.topic != _filterEventType) {
           return false;
         }
 
-        // 👇 MỚI THÊM: Lọc trạng thái (Sắp diễn ra/Đã kết thúc...)
         if (_filterEventStatus != null) {
-          // Gọi hàm kiểm tra thời gian mình vừa viết ở trên
           if (!_checkEventStatus(post, _filterEventStatus!)) {
             return false;
           }
@@ -809,7 +957,12 @@ class _ForumPageState extends State<ForumPage> {
     );
   }
 
+  //   NÚT XÓA CHO CHÍNH CHỦ VỚI GIAO DIỆN MỚI
   Widget _buildPostItem(ForumPost post, int index) {
+    bool isOwner =
+        post.authorName == UserData.name ||
+        post.authorName == UserData.studentId;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(15),
@@ -865,6 +1018,63 @@ class _ForumPageState extends State<ForumPage> {
                   ),
                 ),
               ),
+
+              //  MENU TÙY CHỌN (CHỈ HIỆN NẾU LÀ CHỦ BÀI)
+              if (isOwner)
+                Theme(
+                  data: Theme.of(context).copyWith(
+                    useMaterial3: true,
+                    popupMenuTheme: const PopupMenuThemeData(
+                      color: Colors.white,
+                      surfaceTintColor: Colors.white,
+                    ),
+                  ),
+                  child: PopupMenuButton<String>(
+                    elevation: 3,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    offset: const Offset(0, 40),
+                    icon: const Icon(Icons.more_horiz, color: Colors.grey),
+                    onSelected: (value) {
+                      if (value == 'delete') {
+                        _confirmDeletePost(post.id, index);
+                      }
+                    },
+                    itemBuilder: (BuildContext context) =>
+                        <PopupMenuEntry<String>>[
+                          PopupMenuItem<String>(
+                            value: 'delete',
+                            height: 45,
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    color: Colors.red.shade50,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Icon(
+                                    Icons.delete_rounded,
+                                    color: Colors.red,
+                                    size: 18,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                const Text(
+                                  'Xóa bài viết',
+                                  style: TextStyle(
+                                    color: Colors.red,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                  ),
+                ),
             ],
           ),
           const SizedBox(height: 12),
@@ -963,12 +1173,23 @@ class _ForumPageState extends State<ForumPage> {
               if (post.authorName != UserData.name)
                 ElevatedButton.icon(
                   onPressed: () {
+                    if (post.authorId == UserData.id) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            "Bạn không thể nhắn tin cho chính mình!",
+                          ),
+                        ),
+                      );
+                      return;
+                    }
                     Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (_) => ChatDetailPage(
-                          userName: post.authorName,
-                          userImage: post.authorAvatar,
+                          partnerId: post.authorId,
+                          partnerName: post.authorName,
+                          partnerImage: post.authorAvatar,
                           isOnline: true,
                         ),
                       ),
@@ -980,7 +1201,7 @@ class _ForumPageState extends State<ForumPage> {
                     color: Colors.white,
                   ),
                   label: const Text(
-                    "Nhắn tin",
+                    "Liên hệ",
                     style: TextStyle(color: Colors.white, fontSize: 12),
                   ),
                   style: ElevatedButton.styleFrom(

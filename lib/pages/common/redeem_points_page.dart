@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
-import '../../data/mock_data.dart';
 import '../../components/app_background.dart';
+import '../../services/gift_service.dart';
+import '../../services/user_service.dart';
+import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class RedeemPointsPage extends StatefulWidget {
   const RedeemPointsPage({super.key});
@@ -10,10 +13,44 @@ class RedeemPointsPage extends StatefulWidget {
 }
 
 class _RedeemPointsPageState extends State<RedeemPointsPage> {
-  int _currentPoints = UserData.points;
+  final GiftService _giftService = GiftService();
+
+  // State Variables
+  List<dynamic> _gifts = [];
+  bool _isLoading = true;
+  int _currentPoints = 0;
+
+  // Logic hiển thị "Xem thêm"
+  bool _isExpanded = false;
+  final int _initialCount = 6;
+
+  @override
+  void initState() {
+    super.initState();
+    // 1. Lấy điểm hiện tại từ bộ nhớ đệm (UserData)
+    _currentPoints = UserData.points ?? 0;
+    // 2. Tải danh sách quà
+    _loadGifts();
+  }
+
+  Future<void> _loadGifts() async {
+    final gifts = await _giftService.fetchGifts();
+    if (mounted) {
+      setState(() {
+        _gifts = gifts;
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    // Tính toán số lượng item cần hiển thị
+    int displayCount = _gifts.length;
+    if (!_isExpanded && _gifts.length > _initialCount) {
+      displayCount = _initialCount;
+    }
+
     return Scaffold(
       body: AppBackground(
         child: Column(
@@ -50,95 +87,84 @@ class _RedeemPointsPageState extends State<RedeemPointsPage> {
               ),
             ),
 
-            // 2. BODY (Đã fix lỗi GridView)
+            // 2. BODY
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Thẻ điểm (Giữ nguyên)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 25,
-                        horizontal: 30,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2C2C54),
-                        borderRadius: BorderRadius.circular(15),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Colors.black26,
-                            blurRadius: 10,
-                            offset: Offset(0, 5),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : SingleChildScrollView(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            children: const [
-                              Icon(
-                                Icons.diamond,
-                                color: Colors.white,
-                                size: 28,
-                              ),
-                              SizedBox(width: 10),
-                              Text(
-                                "Điểm",
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 18,
-                                ),
-                              ),
-                            ],
-                          ),
-                          Text(
-                            "$_currentPoints",
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 28,
+                          // Thẻ điểm
+                          _buildPointCard(),
+
+                          const SizedBox(height: 30),
+                          const Text(
+                            "Danh mục đổi điểm",
+                            style: TextStyle(
+                              fontSize: 18,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
+                          const SizedBox(height: 20),
+
+                          // Lưới quà tặng (Dùng dữ liệu API)
+                          _gifts.isEmpty
+                              ? const Center(
+                                  child: Text("Hiện chưa có quà nào."),
+                                )
+                              : GridView.builder(
+                                  padding: EdgeInsets.zero,
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  gridDelegate:
+                                      const SliverGridDelegateWithFixedCrossAxisCount(
+                                        crossAxisCount: 2,
+                                        childAspectRatio: 0.8,
+                                        crossAxisSpacing: 15,
+                                        mainAxisSpacing: 15,
+                                      ),
+                                  itemCount: displayCount,
+                                  itemBuilder: (context, index) {
+                                    return _buildGiftCard(_gifts[index]);
+                                  },
+                                ),
+
+                          // Nút "Xem thêm" / "Thu gọn"
+                          if (_gifts.length > _initialCount)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 20.0),
+                              child: Center(
+                                child: TextButton.icon(
+                                  onPressed: () {
+                                    setState(() {
+                                      _isExpanded = !_isExpanded;
+                                    });
+                                  },
+                                  icon: Icon(
+                                    _isExpanded
+                                        ? Icons.keyboard_arrow_up
+                                        : Icons.keyboard_arrow_down,
+                                    color: const Color(0xFFB71C1C),
+                                  ),
+                                  label: Text(
+                                    _isExpanded
+                                        ? "Thu gọn"
+                                        : "Xem thêm (${_gifts.length - _initialCount} món nữa)",
+                                    style: const TextStyle(
+                                      color: Color(0xFFB71C1C),
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+
+                          const SizedBox(height: 50),
                         ],
                       ),
                     ),
-
-                    const SizedBox(height: 30),
-                    const Text(
-                      "Danh mục đổi điểm",
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Lưới quà tặng (GridView) -> ĐÃ FIX
-                    GridView.builder(
-                      padding: EdgeInsets.zero,
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        // Tăng tỷ lệ chiều cao lên một chút để chữ không bị cắt (0.75 hoặc 0.8)
-                        // Số càng nhỏ thì thẻ càng cao
-                        childAspectRatio: 0.8,
-                        crossAxisSpacing: 15,
-                        mainAxisSpacing: 15,
-                      ),
-                      itemCount: giftList.length,
-                      itemBuilder: (context, index) {
-                        return _buildGiftCard(giftList[index]);
-                      },
-                    ),
-                    const SizedBox(height: 50),
-                  ],
-                ),
-              ),
             ),
           ],
         ),
@@ -146,19 +172,68 @@ class _RedeemPointsPageState extends State<RedeemPointsPage> {
     );
   }
 
-  // Widget thẻ quà tặng (Đã tối ưu hiển thị để không mất chữ)
-  Widget _buildGiftCard(GiftItem gift) {
+  // Widget hiển thị điểm số
+  Widget _buildPointCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 25, horizontal: 30),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2C2C54),
+        borderRadius: BorderRadius.circular(15),
+        boxShadow: const [
+          BoxShadow(
+            color: Colors.black26,
+            blurRadius: 10,
+            offset: Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.diamond, color: Colors.white, size: 28),
+              SizedBox(width: 10),
+              Text(
+                "Điểm",
+                style: TextStyle(color: Colors.white70, fontSize: 18),
+              ),
+            ],
+          ),
+          Text(
+            "$_currentPoints",
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 28,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Widget thẻ quà tặng (Mapping dữ liệu thật)
+  Widget _buildGiftCard(dynamic gift) {
+    // Mapping dữ liệu từ MongoDB
+    String name = gift['name'] ?? "Quà tặng";
+    String imageUrl = gift['imageUrl'] ?? "";
+    int point = gift['point'] ?? 0;
+    int quantity = gift['quantity'] ?? 0;
+    bool isOutOfStock = quantity <= 0;
+
     return InkWell(
-      onTap: () => _showDetailDialog(gift),
+      onTap: () => _showDetailDialog(gift), // Vẫn cho bấm vào để xem (Tạo FOMO)
       borderRadius: BorderRadius.circular(20),
       child: Container(
-        padding: const EdgeInsets.all(10), // Thêm padding chung cho thẻ
+        padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
+              color: Colors.black.withOpacity(0.1),
               blurRadius: 15,
               offset: const Offset(0, 8),
             ),
@@ -167,37 +242,88 @@ class _RedeemPointsPageState extends State<RedeemPointsPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Ảnh (Dùng Expanded để nó chiếm phần lớn không gian, không đẩy chữ xuống)
+            // Ảnh (Dùng Stack để đè chữ HẾT HÀNG lên)
             Expanded(
-              flex: 3, // Chiếm 3 phần
+              flex: 3,
               child: Padding(
                 padding: const EdgeInsets.all(8.0),
-                child: Image.network(
-                  gift.iconPath,
-                  fit: BoxFit.contain, // Đảm bảo ảnh nằm gọn trong khung
-                  errorBuilder: (c, e, s) => const Icon(
-                    Icons.card_giftcard,
-                    size: 50,
-                    color: Colors.grey,
-                  ),
+                child: Stack(
+                  children: [
+                    // 1. Ảnh Quà (Nếu hết hàng thì làm xám)
+                    ColorFiltered(
+                      colorFilter: isOutOfStock
+                          ? const ColorFilter.mode(
+                              Colors.grey,
+                              BlendMode.saturation,
+                            ) // Trắng đen
+                          : const ColorFilter.mode(
+                              Colors.transparent,
+                              BlendMode.multiply,
+                            ), // Bình thường
+                      child: Center(
+                        // Bọc Center để ảnh nằm giữa
+                        child: Image.network(
+                          imageUrl,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) =>
+                              const Icon(
+                                Icons.card_giftcard,
+                                size: 50,
+                                color: Colors.grey,
+                              ),
+                        ),
+                      ),
+                    ),
+
+                    // 2. Nhãn "HẾT HÀNG" (Chỉ hiện khi quantity <= 0)
+                    if (isOutOfStock)
+                      Positioned.fill(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(
+                              0.5,
+                            ), // Lớp mờ trắng phủ lên
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Center(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.black87,
+                                borderRadius: BorderRadius.circular(5),
+                              ),
+                              child: const Text(
+                                "HẾT HÀNG",
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ),
-
-            // Tên quà (Cho phép hiện 2 dòng nếu dài)
+            // Tên quà
             Expanded(
-              flex: 1, // Chiếm 1 phần
+              flex: 1,
               child: Center(
-                // Căn giữa theo chiều dọc
                 child: Text(
-                  gift.name,
+                  name,
                   textAlign: TextAlign.center,
-                  maxLines: 2, // Cho phép xuống dòng
-                  overflow: TextOverflow.ellipsis, // Nếu dài quá thì ...
-                  style: const TextStyle(
-                    fontSize: 14, // Giảm font size chút cho vừa vặn
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 14,
                     fontWeight: FontWeight.bold,
-                    color: Colors.black87,
+                    color: isOutOfStock ? Colors.grey : Colors.black87,
                   ),
                 ),
               ),
@@ -209,14 +335,16 @@ class _RedeemPointsPageState extends State<RedeemPointsPage> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
-                color: const Color(0xFFB71C1C).withOpacity(0.1),
+                color: isOutOfStock
+                    ? Colors.grey.shade200
+                    : const Color(0xFFB71C1C).withOpacity(0.1),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Text(
-                "${gift.cost} Điểm",
-                style: const TextStyle(
+                "$point Điểm",
+                style: TextStyle(
                   fontSize: 12,
-                  color: Color(0xFFB71C1C),
+                  color: isOutOfStock ? Colors.grey : const Color(0xFFB71C1C),
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -227,8 +355,14 @@ class _RedeemPointsPageState extends State<RedeemPointsPage> {
     );
   }
 
-  // --- CÁC POPUP GIỮ NGUYÊN (KHÔNG ĐỔI GÌ) ---
-  void _showDetailDialog(GiftItem gift) {
+  // --- POPUP CHI TIẾT ---
+  void _showDetailDialog(dynamic gift) {
+    String name = gift['name'] ?? "";
+    String description = gift['description'] ?? "Chưa có mô tả";
+    String imageUrl = gift['imageUrl'] ?? "";
+    int quantity = gift['quantity'] ?? 0;
+    bool isOutOfStock = quantity <= 0;
+
     showDialog(
       context: context,
       builder: (context) => Dialog(
@@ -238,39 +372,54 @@ class _RedeemPointsPageState extends State<RedeemPointsPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Image.network(
-                gift.iconPath,
-                height: 80,
-                errorBuilder: (c, e, s) => const Icon(
-                  Icons.card_giftcard,
-                  size: 80,
-                  color: Colors.grey,
+              // Ảnh trong popup cũng nên xám nếu hết hàng
+              ColorFiltered(
+                colorFilter: isOutOfStock
+                    ? const ColorFilter.mode(Colors.grey, BlendMode.saturation)
+                    : const ColorFilter.mode(
+                        Colors.transparent,
+                        BlendMode.multiply,
+                      ),
+                child: Image.network(
+                  imageUrl,
+                  height: 80,
+                  errorBuilder: (c, e, s) => const Icon(
+                    Icons.card_giftcard,
+                    size: 80,
+                    color: Colors.grey,
+                  ),
                 ),
               ),
               const SizedBox(height: 15),
-              _buildInfoRow("Quà", gift.name),
+              _buildInfoRow("Quà", name),
               const SizedBox(height: 10),
-              _buildInfoRow("Mô tả", gift.description, maxLines: 3),
+              _buildInfoRow("Mô tả", description, maxLines: 3),
               const SizedBox(height: 10),
-              _buildInfoRow("Hệ số quy đổi", gift.exchangeRate ?? ""),
+              _buildInfoRow(
+                "Tình trạng",
+                isOutOfStock ? "Đã hết hàng" : "Còn $quantity cái",
+              ),
               const SizedBox(height: 25),
               SizedBox(
                 width: double.infinity,
                 height: 45,
                 child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    _processRedemption(gift);
-                  },
+                  onPressed: isOutOfStock
+                      ? null
+                      : () {
+                          Navigator.pop(context);
+                          _processRedemption(gift);
+                        },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFB71C1C),
+                    disabledBackgroundColor: Colors.grey,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-                  child: const Text(
-                    "ĐỔI",
-                    style: TextStyle(
+                  child: Text(
+                    isOutOfStock ? "HẾT HÀNG" : "ĐỔI",
+                    style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
                     ),
@@ -284,67 +433,71 @@ class _RedeemPointsPageState extends State<RedeemPointsPage> {
     );
   }
 
-  void _processRedemption(GiftItem gift) {
-    if (_currentPoints >= gift.cost) {
+  // --- LOGIC ĐỔI QUÀ (GỌI API) ---
+  void _processRedemption(dynamic gift) async {
+    int cost = gift['point'] ?? 0;
+
+    // 1. Kiểm tra điểm Client trước
+    if (_currentPoints < cost) {
+      _showFailureDialog("Không đủ điểm để đổi quà này!");
+      return;
+    }
+
+    // 2. Hiện loading
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    // 3. Gọi API
+    final result = await _giftService.redeemGift(gift['_id']);
+
+    // 4. Tắt loading
+    if (mounted) Navigator.pop(context);
+
+    // 5. Xử lý kết quả
+    if (result['success']) {
+      // 👇 KHAI BÁO BIẾN newPoints TẠI ĐÂY ĐỂ DÙNG ĐƯỢC Ở DƯỚI
+      int newPoints = result['data']['newPoints'];
+
       setState(() {
-        _currentPoints -= gift.cost;
-        UserData.points = _currentPoints;
+        _currentPoints = newPoints;
+        UserData.points = newPoints;
       });
-      if (gift.type == GiftType.drl) {
-        _showSuccessDRLDialog();
-      } else {
-        _showSuccessItemDialog(gift);
+
+      // Lưu vào bộ nhớ máy (SharedPreferences)
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        if (UserData.email != null) {
+          // 👇 Bây giờ biến newPoints đã hợp lệ
+          await prefs.setInt('points_${UserData.email}', newPoints);
+          print("💾 Đã cập nhật cache điểm số: $newPoints");
+        }
+      } catch (e) {
+        print("⚠️ Lỗi lưu cache: $e");
       }
+
+      // Lấy thông tin hiển thị
+      String code = result['data']['code'];
+      String location = result['data']['location'];
+      String expiresAtRaw = result['data']['expiresAt'];
+
+      _showSuccessItemDialog(gift['name'], code, location, expiresAtRaw);
     } else {
-      _showFailureDialog();
+      _showFailureDialog(result['message']);
     }
   }
 
-  void _showSuccessDRLDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Padding(
-          padding: const EdgeInsets.all(30),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(15),
-                decoration: const BoxDecoration(
-                  color: Colors.green,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.check, color: Colors.white, size: 40),
-              ),
-              const SizedBox(height: 20),
-              const Text(
-                "Đổi điểm thành công",
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-              ),
-              const SizedBox(height: 30),
-              SizedBox(
-                width: 120,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFB71C1C),
-                  ),
-                  child: const Text(
-                    "ĐÓNG",
-                    style: TextStyle(color: Colors.white),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  void _showSuccessItemDialog(
+    String giftName,
+    String code,
+    String location,
+    String expiresAtRaw,
+  ) {
+    DateTime expiryDate = DateTime.parse(expiresAtRaw);
+    String formattedDate = DateFormat('HH:mm dd/MM/yyyy').format(expiryDate);
 
-  void _showSuccessItemDialog(GiftItem gift) {
     showDialog(
       context: context,
       builder: (context) => Dialog(
@@ -392,7 +545,7 @@ class _RedeemPointsPageState extends State<RedeemPointsPage> {
               child: Column(
                 children: [
                   Text(
-                    "Bạn đã đổi thành công 1 ${gift.name}",
+                    "Bạn đã đổi thành công 1 $giftName",
                     style: const TextStyle(color: Colors.grey),
                   ),
                   const SizedBox(height: 20),
@@ -414,16 +567,49 @@ class _RedeemPointsPageState extends State<RedeemPointsPage> {
                           ),
                         ),
                         const SizedBox(height: 5),
-                        const Text(
-                          "05112501",
-                          style: TextStyle(
-                            fontSize: 24,
+                        SelectableText(
+                          code, // Mã code thật từ server
+                          style: const TextStyle(
+                            fontSize: 20,
                             fontWeight: FontWeight.bold,
                             color: Color(0xFFB71C1C),
-                            letterSpacing: 2,
+                            letterSpacing: 1,
                           ),
                         ),
-                        const Divider(height: 30),
+                        const Divider(height: 15),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 8,
+                            horizontal: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(5),
+                            border: Border.all(
+                              color: Colors.orange.withOpacity(0.5),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.timer,
+                                size: 16,
+                                color: Colors.orange,
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                "Hết hạn: $formattedDate",
+                                style: const TextStyle(
+                                  color: Colors.deepOrange,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 5),
                         Row(
                           children: [
                             const Icon(
@@ -435,8 +621,8 @@ class _RedeemPointsPageState extends State<RedeemPointsPage> {
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
-                                children: const [
-                                  Text(
+                                children: [
+                                  const Text(
                                     "Nơi nhận:",
                                     style: TextStyle(
                                       fontSize: 12,
@@ -444,39 +630,8 @@ class _RedeemPointsPageState extends State<RedeemPointsPage> {
                                     ),
                                   ),
                                   Text(
-                                    "Phòng Hỗ trợ sinh viên - CS03.A.01",
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 15),
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.access_time_filled,
-                              color: Colors.grey,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: const [
-                                  Text(
-                                    "Thời gian:",
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey,
-                                    ),
-                                  ),
-                                  Text(
-                                    "Sáng: 7h-12h | Chiều: 13h-17h",
-                                    style: TextStyle(
+                                    location, // Địa điểm thật từ DB
+                                    style: const TextStyle(
                                       fontWeight: FontWeight.w500,
                                     ),
                                   ),
@@ -515,7 +670,7 @@ class _RedeemPointsPageState extends State<RedeemPointsPage> {
     );
   }
 
-  void _showFailureDialog() {
+  void _showFailureDialog(String message) {
     showDialog(
       context: context,
       builder: (context) => Dialog(
@@ -535,8 +690,14 @@ class _RedeemPointsPageState extends State<RedeemPointsPage> {
               ),
               const SizedBox(height: 20),
               const Text(
-                "Không đủ điểm đổi quà",
+                "Thông báo",
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                message, // Hiển thị lỗi từ Server (VD: Hết hàng, Thiếu điểm)
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.grey),
               ),
               const SizedBox(height: 30),
               SizedBox(

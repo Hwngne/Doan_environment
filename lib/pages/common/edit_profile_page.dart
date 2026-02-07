@@ -1,10 +1,10 @@
-import 'dart:io'; // Xử lý File ảnh
-import 'package:flutter/foundation.dart'; // Kiểm tra Web/Mobile
+import 'dart:io';
+import 'package:flutter/foundation.dart'; // Để dùng kIsWeb
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart'; // Thư viện chọn ảnh
-import '../../data/mock_data.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../components/app_background.dart';
-import '../../services/auth_service.dart'; // <--- Đổi thành AuthService
+import '../../services/auth_service.dart';
+import '../../services/user_service.dart';
 
 class EditProfilePage extends StatefulWidget {
   const EditProfilePage({super.key});
@@ -26,8 +26,9 @@ class _EditProfilePageState extends State<EditProfilePage> {
   bool _isLoading = false;
 
   // --- LOGIC AVATAR ---
-  XFile? _pickedFile; // Ảnh chọn từ thư viện
-  String _currentAvatarUrl = UserData.avatar; // Ảnh URL hiện tại
+  XFile? _pickedFile;
+  // ✅ FIX LỖI 2: Thêm giá trị mặc định nếu null
+  String _currentAvatarUrl = UserData.avatar ?? "https://i.pravatar.cc/300";
 
   // Danh sách Avatar có sẵn (Presets)
   final List<String> _presetAvatars = [
@@ -47,40 +48,80 @@ class _EditProfilePageState extends State<EditProfilePage> {
   @override
   void initState() {
     super.initState();
-    // Load dữ liệu thật từ UserData
-    _nameController = TextEditingController(text: UserData.name.toUpperCase());
-    _dobController = TextEditingController(text: UserData.dateOfBirth);
-    _emailController = TextEditingController(text: UserData.email);
-    _phoneController = TextEditingController(text: UserData.phone);
+    // 1. Load dữ liệu tạm từ RAM (UserData)
+    _nameController = TextEditingController(
+      text: UserData.name?.toUpperCase() ?? "",
+    );
+    _dobController = TextEditingController(text: UserData.dateOfBirth ?? "");
+    _emailController = TextEditingController(text: UserData.email ?? "");
+    _phoneController = TextEditingController(text: UserData.phone ?? "");
 
-    // Xử lý giới tính (Tránh lỗi nếu UserData chưa có)
     _selectedGender = (UserData.gender == "Nam" || UserData.gender == "Nữ")
-        ? UserData.gender
+        ? UserData.gender!
         : "Nữ";
 
-    // Lưu giá trị gốc
-    _initialDob = UserData.dateOfBirth;
-    _initialPhone = UserData.phone;
+    _initialDob = _dobController.text;
+    _initialPhone = _phoneController.text;
     _initialGender = _selectedGender;
 
+    // Lắng nghe thay đổi
     _dobController.addListener(_checkForChanges);
     _phoneController.addListener(_checkForChanges);
+
+    // 2. Gọi API lấy dữ liệu mới nhất (Sync Background)
+    _fetchLatestData();
   }
 
+  // Hàm mới: Lấy dữ liệu mới nhất từ Server
+  Future<void> _fetchLatestData() async {
+    try {
+      final data = await UserService.getUserProfile(); // Gọi API
+      if (mounted) {
+        setState(() {
+          _dobController.text = data['dateOfBirth'] ?? "";
+          _phoneController.text = data['phone'] ?? "";
+
+          String gender = data['gender'] ?? "Nữ";
+          if (gender == "M" || gender == "Male") gender = "Nam";
+          if (gender == "F" || gender == "Female") gender = "Nữ";
+          _selectedGender = gender;
+
+          _currentAvatarUrl = data['avatar'] ?? "https://i.pravatar.cc/300";
+
+          // Cập nhật lại giá trị gốc
+          _initialDob = _dobController.text;
+          _initialPhone = _phoneController.text;
+          _initialGender = _selectedGender;
+
+          // Kiểm tra lại xem có thay đổi không (sau khi data mới về)
+          _checkForChanges();
+        });
+
+        // Cập nhật UserData tĩnh
+        UserData.dateOfBirth = data['dateOfBirth'];
+        UserData.phone = data['phone'];
+        UserData.gender = _selectedGender;
+        UserData.avatar = _currentAvatarUrl;
+      }
+    } catch (e) {
+      print("⚠️ Không thể đồng bộ dữ liệu mới nhất: $e");
+    }
+  }
+
+  // ✅ FIX LỖI 3: Hàm này phải nằm trong class State
   void _checkForChanges() {
     bool hasChanged =
         _dobController.text != _initialDob ||
         _phoneController.text != _initialPhone ||
         _selectedGender != _initialGender ||
         _pickedFile != null ||
-        _currentAvatarUrl != UserData.avatar;
+        _currentAvatarUrl != (UserData.avatar ?? "https://i.pravatar.cc/300");
 
     if (hasChanged != _isChanged) {
       setState(() => _isChanged = hasChanged);
     }
   }
 
-  // --- HÀM CHỌN ẢNH TỪ MÁY ---
   Future<void> _pickImage() async {
     final ImagePicker picker = ImagePicker();
     try {
@@ -96,7 +137,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
     }
   }
 
-  // --- HÀM CHỌN PRESET ---
   void _selectPresetAvatar(String url) {
     setState(() {
       _currentAvatarUrl = url;
@@ -106,35 +146,26 @@ class _EditProfilePageState extends State<EditProfilePage> {
     Navigator.pop(context);
   }
 
-  // --- HÀM LƯU DỮ LIỆU (QUAN TRỌNG: ĐÃ GẮN API) ---
   Future<void> _handleSave() async {
     String inputPhone = _phoneController.text.trim();
-
-    // Regex: Bắt đầu bằng 0, theo sau là 9 chữ số bất kỳ (Tổng là 10 số)
     final phoneRegex = RegExp(r'^0\d{9}$');
 
     if (!phoneRegex.hasMatch(inputPhone)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            "Số điện thoại không hợp lệ! (Phải 10 số & bắt đầu bằng 0)",
-          ),
+          content: Text("SĐT không hợp lệ! (Phải 10 số & bắt đầu bằng 0)"),
           backgroundColor: Colors.red,
         ),
       );
-      return; // ⛔ Dừng lại ngay, không lưu!
+      return;
     }
     setState(() => _isLoading = true);
 
     String avatarToSend = _currentAvatarUrl;
-
-    // Xử lý ảnh: Nếu chọn ảnh từ máy -> Tạm thời dùng đường dẫn local (Vì chưa làm upload server)
-    // Lưu ý: Trên web, đường dẫn local (blob) sẽ mất khi F5. Nên dùng Preset là tốt nhất hiện tại.
     if (_pickedFile != null) {
       avatarToSend = _pickedFile!.path;
     }
 
-    // GỌI SERVICE AUTH UPDATE
     bool success = await AuthService.updateProfile(
       gender: _selectedGender,
       phone: _phoneController.text,
@@ -146,11 +177,16 @@ class _EditProfilePageState extends State<EditProfilePage> {
       setState(() => _isLoading = false);
 
       if (success) {
-        // Cập nhật lại giá trị gốc để nút Lưu disable đi
         _initialDob = _dobController.text;
         _initialPhone = _phoneController.text;
         _initialGender = _selectedGender;
-        _isChanged = false; // Reset trạng thái nút
+        _isChanged = false;
+
+        // Cập nhật lại UserData tĩnh ngay lập tức để đồng bộ
+        UserData.phone = _phoneController.text;
+        UserData.dateOfBirth = _dobController.text;
+        UserData.gender = _selectedGender;
+        UserData.avatar = avatarToSend;
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -159,9 +195,8 @@ class _EditProfilePageState extends State<EditProfilePage> {
           ),
         );
 
-        // Đợi 1 xíu rồi quay lại
         Future.delayed(const Duration(milliseconds: 500), () {
-          Navigator.pop(context, true); // true: Báo trang trước reload
+          Navigator.pop(context, true);
         });
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -174,7 +209,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
     }
   }
 
-  // --- UI POPUP CHỌN AVATAR ---
   void _showAvatarOptions() {
     showModalBottomSheet(
       context: context,
@@ -275,7 +309,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    // Logic hiển thị Avatar
     ImageProvider avatarImage;
     if (_pickedFile != null) {
       if (kIsWeb) {
@@ -320,7 +353,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // --- AVATAR ---
                   Center(
                     child: Stack(
                       children: [
@@ -361,17 +393,13 @@ class _EditProfilePageState extends State<EditProfilePage> {
                     ),
                   ),
                   const SizedBox(height: 30),
-
-                  // --- FORM ---
                   const Text(
                     "Thông tin cá nhân",
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
                   ),
                   const SizedBox(height: 20),
-
                   _buildLabel("Tên *"),
                   _buildTextField(_nameController, isReadOnly: true),
-
                   const SizedBox(height: 15),
                   _buildLabel("Ngày sinh"),
                   GestureDetector(
@@ -394,7 +422,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 15),
                   _buildLabel("Giới tính"),
                   Container(
@@ -431,27 +458,21 @@ class _EditProfilePageState extends State<EditProfilePage> {
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 30),
                   const Text(
                     "Thông tin liên hệ",
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
                   ),
                   const SizedBox(height: 20),
-
                   _buildLabel("Email *"),
                   _buildTextField(_emailController, isReadOnly: true),
-
                   const SizedBox(height: 15),
                   _buildLabel("Sđt *"),
                   _buildTextField(
                     _phoneController,
                     inputType: TextInputType.phone,
                   ),
-
                   const SizedBox(height: 40),
-
-                  // NÚT XÁC NHẬN
                   SizedBox(
                     width: double.infinity,
                     height: 50,
@@ -493,7 +514,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
         ),
         if (_isLoading)
           Container(
-            color: Colors.black.withValues(alpha: 0.3),
+            color: Colors.black.withOpacity(0.3),
             child: const Center(
               child: CircularProgressIndicator(color: Colors.white),
             ),
@@ -502,7 +523,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
     );
   }
 
-  // Widget Helper
   Widget _buildLabel(String text) {
     if (text.contains("*")) {
       return Padding(

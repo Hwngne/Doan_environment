@@ -50,9 +50,25 @@ dependencies:
   # Chọn file tài liệu (PDF, Word...)
   file_picker: ^6.1.1
   # Mở liên kết URL
-  url_launcher: ^6.2.5
+  url_launcher: ^6.3.2
   
   dotted_border: ^2.1.0
+
+  intl: ^0.19.0
+  
+  video_player: ^2.10.1
+
+  flutter_image_compress: ^2.0.0
+
+  path_provider: ^2.1.1
+
+  path: ^1.8.3
+
+  table_calendar: ^3.0.9
+
+  socket_io_client: ^2.0.3+1
+  cached_network_image: ^3.4.1
+  photo_view: ^0.15.0
 
   
 

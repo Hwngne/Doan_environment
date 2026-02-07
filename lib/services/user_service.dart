@@ -1,14 +1,14 @@
-//import 'dart:convert';
-//import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'auth_service.dart';
 
 // ==========================================
 // 1. CLASS USERDATA (KHO DỮ LIỆU TOÀN CỤC)
 // ==========================================
-// Đây là nơi lưu trữ dữ liệu sau khi xử lý xong (dù là từ API hay Mock)
-// Các trang FE (Profile, Home) sẽ lấy dữ liệu từ đây để hiển thị
 class UserData {
+  static String? id;
   static String? token;
-  static String? role; // Quan trọng: dùng để phân luồng 'student' hay 'club'
+  static String? role;
   static String? email;
   static String? name;
   static String? avatar;
@@ -18,13 +18,12 @@ class UserData {
   static String? dateOfBirth;
   static List<String> attendanceHistory = [];
 
-  // Điểm số
   static int? points;
   static int? totalScore;
   static int? rank;
 
-  // Hàm xóa dữ liệu khi đăng xuất
   static void clear() {
+    id = null;
     token = null;
     role = null;
     email = null;
@@ -36,6 +35,7 @@ class UserData {
     gender = null;
     dateOfBirth = null;
     totalScore = null;
+    attendanceHistory = [];
   }
 }
 
@@ -43,9 +43,38 @@ class UserData {
 // 2. CLASS USERSERVICE (XỬ LÝ LOGIC)
 // ==========================================
 class UserService {
-  // Hàm cập nhật Profile
-  // Logic: Giữ nguyên cách bạn đang làm (Giả lập hoặc gọi API thật tùy bạn đã cài đặt)
-  // Nhưng quan trọng: Phải cập nhật ngược lại vào class UserData ở trên
+  static Future<void> fetchUserInfo() async {
+    try {
+      final data = await getUserProfile();
+
+      if (data.isNotEmpty) {
+        UserData.id = data['_id'];
+        UserData.name = data['name'];
+        UserData.email = data['email'];
+        UserData.role = data['role'];
+        UserData.avatar = data['avatar'];
+        UserData.phone = data['phone'];
+        UserData.studentId = data['studentId'];
+
+        if (data['total_points'] != null) {
+          UserData.points = int.tryParse(data['total_points'].toString());
+        } else if (data['points'] != null) {
+          UserData.points = int.tryParse(data['points'].toString());
+        }
+        if (data['rank'] != null)
+          UserData.rank = int.tryParse(data['rank'].toString());
+
+        if (data['attendanceHistory'] != null) {
+          UserData.attendanceHistory = List<String>.from(
+            data['attendanceHistory'],
+          );
+        }
+      }
+    } catch (e) {
+      print("Lỗi đồng bộ UserData: $e");
+    }
+  }
+
   Future<bool> updateUserProfile(
     String name,
     String dob,
@@ -53,34 +82,35 @@ class UserService {
     String phone,
   ) async {
     try {
-      // 1. Giả lập độ trễ (như code cũ của bạn)
       await Future.delayed(const Duration(seconds: 2));
-      print("Processing Update Profile: $name, $dob, $gender, $phone");
-
-      // --- NẾU BẠN ĐANG DÙNG API THÌ BỎ COMMENT PHẦN NÀY ---
-      /*
-      final url = Uri.parse('YOUR_API_URL/profile');
-      final response = await http.put(url, body: {...});
-      if (response.statusCode != 200) return false;
-      */
-      // -----------------------------------------------------
-
-      // 2. CẬP NHẬT DỮ LIỆU VÀO KHO (QUAN TRỌNG)
-      // Dù là lưu xuống DB hay không, ta phải cập nhật vào UserData
-      // để màn hình ProfilePage hiển thị thông tin mới ngay lập tức.
       UserData.name = name;
       UserData.dateOfBirth = dob;
       UserData.gender = gender;
       UserData.phone = phone;
-
-      // 3. Trả về thành công
       return true;
     } catch (e) {
-      print("Lỗi update: $e");
       return false;
     }
   }
 
-  // Các hàm khác của Sinh viên (Đăng bài, Xếp hạng...)
-  // Bạn giữ nguyên logic cũ của bạn ở đây.
+  // Hàm gọi API lấy thông tin
+  static Future<Map<String, dynamic>> getUserProfile() async {
+    final token = await AuthService.getToken();
+    final url = Uri.parse('${AuthService.baseUrl}/profile');
+
+    final response = await http.get(
+      url,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      print('Failed to load profile: ${response.body}');
+      return {};
+    }
+  }
 }

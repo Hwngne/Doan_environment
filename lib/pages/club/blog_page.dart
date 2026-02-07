@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../services/user_service.dart';
 import '../../services/forum_service.dart';
-import '../../data/mock_data.dart' hide UserData, ForumPost;
 
 class BlogPage extends StatefulWidget {
   const BlogPage({super.key});
@@ -13,7 +13,7 @@ class BlogPage extends StatefulWidget {
 class _BlogPageState extends State<BlogPage> {
   List<ForumPost> _myPosts = [];
   bool _isLoading = true;
-  String _selectedFilter = "All"; // All, Kiến thức, Sản phẩm, Sự kiện
+  String _selectedFilter = "All";
 
   @override
   void initState() {
@@ -21,49 +21,51 @@ class _BlogPageState extends State<BlogPage> {
     _loadMyPosts();
   }
 
-  // Lấy bài viết và lọc chỉ lấy bài của CLB mình
   Future<void> _loadMyPosts() async {
-    setState(() => _isLoading = true);
-    // Gọi API lấy tất cả bài viết
-    List<ForumPost> allPosts = await ForumService.fetchPosts();
+    if (_myPosts.isEmpty) setState(() => _isLoading = true);
+    try {
+      List<ForumPost> allPosts = await ForumService.fetchPosts();
+      List<ForumPost> myPosts = allPosts.where((post) {
+        return post.authorName == UserData.name || post.authorId == UserData.id;
+      }).toList();
 
-    // Lọc: Chỉ lấy bài nào có authorName trùng với tên CLB đang đăng nhập
-    // (Hoặc lọc theo email nếu backend hỗ trợ)
-    List<ForumPost> myPosts = allPosts.where((post) {
-      return post.authorName == UserData.name;
-    }).toList();
-
-    if (mounted) {
-      setState(() {
-        _myPosts = myPosts;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _myPosts = myPosts;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print("Lỗi load blog: $e");
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // Logic lọc bài viết
+    // Logic lọc theo Tab
     final displayPosts = _myPosts.where((post) {
       if (_selectedFilter == "All") return true;
-      return post.tagName == _selectedFilter;
+      return (post.tagName ?? "").contains(_selectedFilter) ||
+          (post.topic ?? "").contains(_selectedFilter);
     }).toList();
 
     return Scaffold(
-      // AppBar giữ nguyên màu đỏ
+      backgroundColor: const Color(0xFFF5F5F5),
       appBar: AppBar(
         backgroundColor: const Color(0xFFB71C1C),
         centerTitle: true,
         title: Text(
-          (UserData.name ?? "CLB").toUpperCase(),
+          (UserData.name ?? "THẾ HỆ XANH").toUpperCase(),
           style: const TextStyle(
             fontWeight: FontWeight.bold,
             color: Colors.white,
+            fontSize: 18,
           ),
         ),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
-          onPressed: () {}, // Xử lý back nếu cần
+          icon: const Icon(Icons.arrow_back_ios, color: Colors.white, size: 20),
+          onPressed: () => Navigator.pop(context),
         ),
         actions: [
           IconButton(
@@ -73,51 +75,40 @@ class _BlogPageState extends State<BlogPage> {
         ],
         elevation: 0,
       ),
+
       body: Column(
         children: [
-          // 1. HEADER PROFILE (Đỏ -> Hồng nhạt)
+          // 1. HEADER PROFILE
           Container(
-            padding: const EdgeInsets.only(bottom: 20),
+            width: double.infinity,
+            padding: const EdgeInsets.only(bottom: 15),
             decoration: const BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [
-                  Color(0xFFB71C1C), // Đỏ đậm
-                  Color(
-                    0xFFF3DDDD,
-                  ), // 👇 Chuyển sang màu Hồng nhạt (để khớp với body)
-                ],
-                stops: [0.0, 0.4],
+                colors: [Color(0xFFB71C1C), Color(0xFFF8E1E1), Colors.white],
+                stops: [0.0, 0.7, 1.0],
               ),
             ),
             child: Column(
               children: [
                 const SizedBox(height: 10),
-                // Avatar
+                // Avatar viền trắng
                 Container(
-                  padding: const EdgeInsets.all(4),
+                  padding: const EdgeInsets.all(3),
                   decoration: const BoxDecoration(
                     color: Colors.white,
                     shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black12,
-                        blurRadius: 10,
-                        offset: Offset(0, 5),
-                      ),
-                    ],
                   ),
                   child: CircleAvatar(
-                    radius: 40,
-                    backgroundColor: Colors.grey[200],
+                    radius: 35,
                     backgroundImage: NetworkImage(
                       UserData.avatar ?? "https://i.pravatar.cc/300",
                     ),
                   ),
                 ),
-                const SizedBox(height: 10),
-                // Tên & Role
+                const SizedBox(height: 8),
+                // Tên
                 Text(
                   UserData.name ?? "Thế Hệ Xanh",
                   style: const TextStyle(
@@ -126,24 +117,44 @@ class _BlogPageState extends State<BlogPage> {
                     color: Color(0xFF2C2C54),
                   ),
                 ),
-                const Text(
-                  "Câu Lạc Bộ",
-                  style: TextStyle(fontSize: 14, color: Colors.grey),
+                Text(
+                  UserData.role ??
+                      "Câu Lạc Bộ", 
+                  style: const TextStyle(fontSize: 13, color: Colors.grey),
                 ),
-
-                const SizedBox(height: 20),
+                const SizedBox(height: 15),
 
                 // Filter Tabs
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      _buildFilterButton("Kiến thức", Colors.blue),
+                      const SizedBox(width: 15),
+                      _buildFilterButton(
+                        "All",
+                        const Color.fromARGB(22, 238, 238, 238),
+                        Colors.black87,
+                      ), // Nút All
                       const SizedBox(width: 10),
-                      _buildFilterButton("Sản phẩm", const Color(0xFF009688)),
+                      _buildFilterButton(
+                        "Kiến thức",
+                        const Color(0xFFE3F2FD),
+                        Colors.blue,
+                      ),
                       const SizedBox(width: 10),
-                      _buildFilterButton("Sự kiện", Colors.orange),
+                      _buildFilterButton(
+                        "Sản phẩm",
+                        const Color(0xFFE0F2F1),
+                        Colors.teal,
+                      ),
+                      const SizedBox(width: 10),
+                      _buildFilterButton(
+                        "Sự kiện",
+                        const Color(0xFFFFF3E0),
+                        Colors.orange,
+                      ),
+                      const SizedBox(width: 15),
                     ],
                   ),
                 ),
@@ -151,22 +162,11 @@ class _BlogPageState extends State<BlogPage> {
             ),
           ),
 
-          // 2. DANH SÁCH BÀI VIẾT (Nền Gradient chuẩn)
+          // 2. DANH SÁCH BÀI VIẾT
           Expanded(
-            child: Container(
-              width: double.infinity,
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                  stops: [0.0, 0.54, 1.0],
-                  colors: [
-                    Color(0xFFF3DDDD), // Hồng nhạt
-                    Color(0xFFFFFFFF), // Trắng
-                    Color(0xFFE5EFFF), // Xanh nhạt
-                  ],
-                ),
-              ),
+            child: RefreshIndicator(
+              onRefresh: _loadMyPosts,
+              color: const Color(0xFFB71C1C),
               child: _isLoading
                   ? const Center(
                       child: CircularProgressIndicator(
@@ -174,20 +174,21 @@ class _BlogPageState extends State<BlogPage> {
                       ),
                     )
                   : displayPosts.isEmpty
-                  ? Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.post_add, size: 60, color: Colors.grey[400]),
-                        const SizedBox(height: 10),
-                        Text(
-                          "Chưa có bài viết ${_selectedFilter != 'All' ? 'thuộc mục $_selectedFilter' : ''}",
-                          style: const TextStyle(color: Colors.grey),
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: const [
+                        SizedBox(height: 100),
+                        Center(
+                          child: Text(
+                            "Chưa có bài viết nào",
+                            style: TextStyle(color: Colors.grey),
+                          ),
                         ),
                       ],
                     )
                   : ListView.builder(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 15,
+                        horizontal: 10,
                         vertical: 10,
                       ),
                       itemCount: displayPosts.length,
@@ -202,48 +203,51 @@ class _BlogPageState extends State<BlogPage> {
     );
   }
 
-  // --- WIDGET NÚT LỌC (Filter Button) ---
-  Widget _buildFilterButton(String label, Color color) {
+  // --- WIDGET NÚT LỌC ---
+  Widget _buildFilterButton(String label, Color bgColor, Color textColor) {
     bool isSelected = _selectedFilter == label;
+    if (label == "All" && isSelected) {
+      bgColor = const Color(0xFFB71C1C);
+      textColor = Colors.white;
+    }
+
     return GestureDetector(
       onTap: () {
-        setState(() {
-          // Nếu đang chọn rồi thì bỏ chọn (về All), ngược lại thì chọn
-          _selectedFilter = isSelected ? "All" : label;
-        });
+        setState(() => _selectedFilter = label);
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected
-              ? color
-              : color.withOpacity(0.1), // Chọn thì đậm, không thì nhạt
-          borderRadius: BorderRadius.circular(25),
+          color: isSelected ? textColor : bgColor,
+          borderRadius: BorderRadius.circular(20),
+          border: isSelected ? null : Border.all(color: Colors.black12),
         ),
         child: Text(
           label,
           style: TextStyle(
             color: isSelected
                 ? Colors.white
-                : color, // Chữ trắng hoặc màu theo theme
+                : (label == "All" ? Colors.black : textColor),
             fontWeight: FontWeight.bold,
+            fontSize: 13,
           ),
         ),
       ),
     );
   }
 
-  // --- WIDGET BÀI VIẾT (Style riêng cho Blog) ---
+  // --- WIDGET BÀI VIẾT ---
   Widget _buildPostItem(ForumPost post) {
-    Color tagColor = Colors.grey;
-    if (post.tagName == "Kiến thức") tagColor = Colors.blue;
-    if (post.tagName == "Sản phẩm") tagColor = const Color(0xFF009688);
-    if (post.tagName == "Sự kiện") tagColor = Colors.orange;
+    Color tagColor = Colors.blue;
+    if ((post.tagName ?? "").contains("Sản phẩm")) tagColor = Colors.teal;
+    if ((post.tagName ?? "").contains("Sự kiện")) tagColor = Colors.orange;
 
     return Container(
+      margin: const EdgeInsets.only(bottom: 15),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
+        borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
@@ -251,137 +255,112 @@ class _BlogPageState extends State<BlogPage> {
             offset: const Offset(0, 2),
           ),
         ],
-        border: Border.all(color: Colors.white),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header bài viết nhỏ
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               CircleAvatar(
-                radius: 18,
+                radius: 20,
                 backgroundImage: NetworkImage(post.authorAvatar),
               ),
               const SizedBox(width: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        post.authorName,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        post.time,
-                        style: TextStyle(color: Colors.grey[500], fontSize: 12),
-                      ),
-                    ],
-                  ),
-                  // Tag nằm ngay dưới tên
-                  Container(
-                    margin: const EdgeInsets.only(top: 2),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: tagColor,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
-                        const Text(
-                          "CLB",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
+                        Text(
+                          post.authorName,
+                          style: const TextStyle(
                             fontWeight: FontWeight.bold,
+                            fontSize: 15,
                           ),
                         ),
-                        const SizedBox(width: 4),
-                        Container(width: 1, height: 10, color: Colors.white),
-                        const SizedBox(width: 4),
+                        const SizedBox(width: 5),
                         Text(
-                          post.tagName,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
+                          post.time.contains("trước") || post.time == "Vừa xong"
+                              ? "• ${post.time}"
+                              : "• 29/1",
+                          style: TextStyle(
+                            color: Colors.grey[500],
+                            fontSize: 12,
                           ),
                         ),
                       ],
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 4),
+                    // Tag nằm dưới tên
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: tagColor,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        "CLB | ${post.tagName}",
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
-
-          const SizedBox(height: 12),
-
-          // Tiêu đề/Nội dung
-          Text(
-            post.content, // Nếu có Title riêng thì dùng title, ở đây dùng content tạm
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 15, height: 1.4),
-          ),
-
-          // Ảnh bài viết (Nếu có)
-          if (post.image != null)
+          const SizedBox(height: 10),
+          if (post.content.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.network(
-                  post.image!,
-                  height: 180,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  errorBuilder: (c, e, s) => Container(
-                    height: 180,
-                    color: Colors.grey[200],
-                    child: const Icon(Icons.broken_image),
-                  ),
-                ),
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Text(
+                post.content,
+                style: const TextStyle(fontSize: 15, color: Colors.black87),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-
-          // Thanh tương tác (Like/Comment)
-          Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: Row(
-              children: [
-                Icon(
-                  post.isLiked ? Icons.favorite : Icons.favorite_border,
-                  size: 20,
-                  color: post.isLiked ? Colors.red : Colors.grey,
-                ),
-                const SizedBox(width: 5),
-                Text("${post.likes}"),
-                const SizedBox(width: 20),
-                const Icon(
-                  Icons.chat_bubble_outline,
-                  size: 20,
-                  color: Colors.grey,
-                ),
-                const SizedBox(width: 5),
-                Text("${post.comments}"),
-
-                const Spacer(),
-                const Icon(
-                  Icons.share,
-                  size: 20,
-                  color: Colors.grey,
-                ), // Nút share giả
-              ],
+          if (post.image != null && post.image!.isNotEmpty)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: CachedNetworkImage(
+                imageUrl: post.image!,
+                width: double.infinity,
+                height: 180,
+                fit: BoxFit.cover,
+                placeholder: (context, url) =>
+                    Container(height: 180, color: Colors.grey[200]),
+                errorWidget: (context, url, error) => const SizedBox.shrink(),
+              ),
             ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Icon(Icons.favorite, color: Colors.red, size: 20),
+              const SizedBox(width: 4),
+              Text("${post.likes}", style: TextStyle(color: Colors.grey[700])),
+              const SizedBox(width: 20),
+              Icon(
+                Icons.chat_bubble_outline,
+                color: Colors.grey[600],
+                size: 20,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                "${post.comments}",
+                style: TextStyle(color: Colors.grey[700]),
+              ),
+              const Spacer(),
+              Icon(Icons.share, color: Colors.grey[400], size: 20),
+            ],
           ),
         ],
       ),

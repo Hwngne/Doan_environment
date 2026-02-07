@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
-import '../../data/mock_data.dart' hide UserData;
-import '../common/news_detail_page.dart';
-import '../common/waste_lookup_page.dart';
+import '../../services/user_service.dart';
+import '../../services/earn_service.dart'; 
+import '../common/news_detail_page.dart'; 
+import 'waste_lookup_page.dart';
 import '../../components/banner_slider.dart';
 import '../common/earn_points_page.dart';
 import '../common/notification_page.dart';
-import '../../services/user_service.dart';
 
-// 1. Chuyển thành StatefulWidget
 class StudentHome extends StatefulWidget {
   const StudentHome({super.key});
 
@@ -16,11 +15,42 @@ class StudentHome extends StatefulWidget {
 }
 
 class _StudentHomeState extends State<StudentHome> {
-  // Hàm này dùng để load lại giao diện sau khi quay về
+  // Biến lưu danh sách bài báo từ API
+  List<dynamic> _homeArticles = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _initData();
+  }
+
+  // Hàm khởi tạo dữ liệu
+  Future<void> _initData() async {
+    await UserService.fetchUserInfo();
+
+    // 2. Lấy danh sách bài báo
+    final res = await EarnService.getArticles();
+
+    print("LOG API ARTICLES: $res");
+    print("LOG LIST RAW: ${res['articles']}");
+
+    if (mounted) {
+      setState(() {
+        // Lọc bài báo hiển thị cho Home
+        List all = res['articles'] ?? [];
+        _homeArticles = all
+            .where((item) => (item['displayType']) == 'home')
+            .toList();
+        print("LOG FILTERED: ${_homeArticles.length}");
+        _isLoading = false;
+      });
+    }
+  }
+
+  // Hàm refresh khi quay lại từ trang khác
   void _refreshData() {
-    setState(() {
-      // UserData là biến static nên chỉ cần setState là UI tự lấy giá trị mới
-    });
+    _initData();
   }
 
   @override
@@ -50,7 +80,7 @@ class _StudentHomeState extends State<StudentHome> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // AVATAR
+                      // AVATAR (Dữ liệu thật từ UserData)
                       Container(
                         width: 50,
                         height: 50,
@@ -66,7 +96,6 @@ class _StudentHomeState extends State<StudentHome> {
                         ),
                       ),
                       const SizedBox(width: 12),
-
                       // TÊN & ROLE
                       Expanded(
                         child: Column(
@@ -74,7 +103,7 @@ class _StudentHomeState extends State<StudentHome> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              "Chào, ${UserData.name}",
+                              "Chào, ${UserData.name ?? 'Bạn'}",
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 16,
@@ -93,23 +122,18 @@ class _StudentHomeState extends State<StudentHome> {
                           ],
                         ),
                       ),
-
                       // NÚT THÔNG BÁO
                       GestureDetector(
-                        // <--- Dùng GestureDetector để bắt sự kiện
-                        onTap: () {
-                          // Chuyển sang trang thông báo
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const NotificationPage(),
-                            ),
-                          );
-                        },
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (c) => const NotificationPage(),
+                          ),
+                        ),
                         child: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.2),
+                            color: Colors.white.withOpacity(0.2),
                             shape: BoxShape.circle,
                           ),
                           child: Stack(
@@ -119,7 +143,6 @@ class _StudentHomeState extends State<StudentHome> {
                                 color: Colors.white,
                                 size: 24,
                               ),
-                              // Chấm đỏ báo hiệu có tin mới
                               Positioned(
                                 right: 0,
                                 top: 0,
@@ -135,23 +158,20 @@ class _StudentHomeState extends State<StudentHome> {
                     ],
                   ),
                 ),
-
-                // 4. THẺ ĐIỂM NỔI
+                // THẺ ĐIỂM NỔI
                 Positioned(
                   bottom: -30,
                   left: 20,
                   right: 20,
                   child: GestureDetector(
                     onTap: () async {
-                      // 2. Dùng 'await' để đợi khi quay về từ trang Săn điểm
                       await Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => const EarnPointsPage(),
+                          builder: (c) => const EarnPointsPage(),
                         ),
                       );
-                      // 3. Sau khi quay về, gọi hàm refresh để cập nhật điểm
-                      _refreshData();
+                      _refreshData(); // Refresh điểm khi quay về
                     },
                     child: Container(
                       height: 80,
@@ -184,7 +204,7 @@ class _StudentHomeState extends State<StudentHome> {
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Text(
-                                      "${UserData.points}", // Tự động cập nhật khi setState
+                                      "${UserData.points ?? 0}",
                                       style: const TextStyle(
                                         color: Colors.white,
                                         fontSize: 20,
@@ -218,7 +238,7 @@ class _StudentHomeState extends State<StudentHome> {
                                   ),
                                 ),
                                 Text(
-                                  "${UserData.rank}", // Tự động cập nhật hạng
+                                  "${UserData.rank ?? 0}",
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 18,
@@ -235,10 +255,9 @@ class _StudentHomeState extends State<StudentHome> {
                 ),
               ],
             ),
-
             SizedBox(height: screenHeight * 0.08),
 
-            // 5. PHẦN NỘI DUNG DƯỚI
+            // NỘI DUNG DƯỚI
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Column(
@@ -247,19 +266,16 @@ class _StudentHomeState extends State<StudentHome> {
                     height: screenHeight * 0.2,
                     child: const BannerSlider(),
                   ),
-
                   const SizedBox(height: 35),
 
-                  // Nút Tra cứu
+                  // Nút Tra Cứu
                   GestureDetector(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const WasteLookupPage(),
-                        ),
-                      );
-                    },
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (c) => const WasteLookupPage(),
+                      ),
+                    ),
                     child: Container(
                       width: double.infinity,
                       height: 70,
@@ -268,7 +284,7 @@ class _StudentHomeState extends State<StudentHome> {
                         borderRadius: BorderRadius.circular(20),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.05),
+                            color: Colors.black.withOpacity(0.05),
                             blurRadius: 15,
                             offset: const Offset(0, 5),
                           ),
@@ -295,86 +311,109 @@ class _StudentHomeState extends State<StudentHome> {
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 30),
 
-                  // List tin tức
-                  ...newsData.map(
-                    (item) => GestureDetector(
-                      onTap: () async {
-                        // 4. Cũng áp dụng await cho Tin tức (vì có thể làm Quiz bên trong)
-                        await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => NewsDetailPage(item: item),
+                  // DANH SÁCH BÀI BÁO (Data Thật)
+                  if (_isLoading)
+                    const Center(child: CircularProgressIndicator())
+                  else if (_homeArticles.isEmpty)
+                    const Text(
+                      "Chưa có tin tức mới",
+                      style: TextStyle(color: Colors.grey),
+                    )
+                  else
+                    ..._homeArticles.map(
+                      (item) => GestureDetector(
+                        onTap: () async {
+                          // Xử lý ID
+                          String articleId = item['_id'] is Map
+                              ? item['_id']['\$oid']
+                              : item['_id'].toString();
+                          // Xử lý Quiz ID (nếu có)
+                          String? quizId;
+                          if (item['quiz'] != null) {
+                            quizId = item['quiz'] is Map
+                                ? item['quiz']['\$oid']
+                                : item['quiz'].toString();
+                          }
+
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => NewsDetailPage(
+                                id: articleId,
+                                title: item['title'],
+                                content: item['content'] ?? "",
+                                imageUrl: item['thumbnail'] ?? "",
+                                displayType: "home", // Type HOME
+                                quizId: quizId,
+                              ),
+                            ),
+                          );
+                          _refreshData();
+                        },
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 15),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(15),
+                            boxShadow: const [
+                              BoxShadow(color: Colors.black12, blurRadius: 5),
+                            ],
                           ),
-                        );
-                        // 5. Cập nhật lại điểm sau khi đọc báo/làm quiz xong
-                        _refreshData();
-                      },
-                      child: Container(
-                        margin: const EdgeInsets.only(bottom: 15),
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(15),
-                          boxShadow: const [
-                            BoxShadow(color: Colors.black12, blurRadius: 5),
-                          ],
-                        ),
-                        child: Row(
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(10),
-                              child: Image.network(
-                                item.image,
-                                width: 80,
-                                height: 80,
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) =>
-                                    Container(
-                                      width: 80,
-                                      height: 80,
-                                      color: Colors.grey[300],
-                                      child: const Icon(
-                                        Icons.broken_image,
-                                        color: Colors.grey,
-                                      ),
-                                    ),
-                              ),
-                            ),
-                            const SizedBox(width: 15),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    item.title,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 15,
-                                    ),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  const SizedBox(height: 5),
-                                  Text(
-                                    item.desc,
-                                    style: const TextStyle(
+                          child: Row(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: Image.network(
+                                  item['thumbnail'] ?? "",
+                                  width: 80,
+                                  height: 80,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (c, e, s) => Container(
+                                    width: 80,
+                                    height: 80,
+                                    color: Colors.grey[300],
+                                    child: const Icon(
+                                      Icons.broken_image,
                                       color: Colors.grey,
-                                      fontSize: 12,
                                     ),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
                                   ),
-                                ],
+                                ),
                               ),
-                            ),
-                          ],
+                              const SizedBox(width: 15),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      item['title'],
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 15,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 5),
+                                    Text(
+                                      "Tin tức & Sự kiện",
+                                      style: const TextStyle(
+                                        color: Colors.grey,
+                                        fontSize: 12,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
                   const SizedBox(height: 100),
                 ],
               ),

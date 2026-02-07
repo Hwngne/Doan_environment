@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../data/mock_data.dart'
-    hide UserData; // Để lấy thông tin User hiện tại
+// Để lấy thông tin User hiện tại
 import '../../services/auth_service.dart';
 import '../../services/user_service.dart';
 
@@ -110,13 +109,14 @@ class _RankPageState extends State<RankPage> {
     for (int i = 0; i < combinedList.length; i++) {
       combinedList[i]['rank'] = i + 1;
 
-      // 👇 NẾU LÀ TÔI: Ép điểm hiển thị phải giống UserData.points (để không bị hiện số 0)
       if (combinedList[i]['name'] == UserData.name) {
         UserData.rank = i + 1;
+        int displayScore = UserData.totalScore ?? 0;
+        if (UserData.totalScore == null) {
+          displayScore = UserData.points ?? 0;
+        }
 
-        // --- FIX LỖI 1: Cập nhật điểm trong list bằng điểm thật trong máy ---
-        combinedList[i]['points'] = UserData.points;
-        // ------------------------------------------------------------------
+        combinedList[i]['points'] = displayScore;
 
         foundMe = true;
       }
@@ -293,7 +293,7 @@ class _RankPageState extends State<RankPage> {
                     style: TextStyle(color: Colors.white70),
                   ),
                   Text(
-                    "${UserData.points}",
+                    "${UserData.totalScore ?? 0}",
                     style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,

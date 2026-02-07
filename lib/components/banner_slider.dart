@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../services/event_service.dart';
 
 class BannerSlider extends StatefulWidget {
   const BannerSlider({super.key});
@@ -11,20 +12,44 @@ class BannerSlider extends StatefulWidget {
 class _BannerSliderState extends State<BannerSlider> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
-  Timer? _timer; // Biến quản lý đồng hồ
-
-  // Danh sách ảnh banner (Bạn có thể thay link ảnh khác nếu muốn)
-  final List<String> _banners = [
-    "https://img.freepik.com/free-vector/flat-world-environment-day-illustration_23-2149368364.jpg",
-    "https://img.freepik.com/free-vector/hand-drawn-world-environment-day-illustration_23-2149376674.jpg",
-    "https://img.freepik.com/free-vector/flat-world-environment-day-illustration_23-2149352934.jpg",
-  ];
+  Timer? _timer;
+  List<dynamic> _banners = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    // Tự động chuyển trang sau 4 giây
+    _fetchBanners();
+  }
+
+  // Gọi API lấy ảnh thật
+  Future<void> _fetchBanners() async {
+    final data = await EventService.getBanners();
+    if (mounted) {
+      setState(() {
+        _banners = data;
+        _isLoading = false;
+
+        if (_banners.isEmpty) {
+          _banners = [
+            {
+              'bannerUrl':
+                  "https://img.freepik.com/free-vector/flat-world-environment-day-illustration_23-2149368364.jpg",
+            },
+            {
+              'bannerUrl':
+                  "https://img.freepik.com/free-vector/hand-drawn-world-environment-day-illustration_23-2149376674.jpg",
+            },
+          ];
+        }
+      });
+      _startAutoScroll();
+    }
+  }
+
+  void _startAutoScroll() {
     _timer = Timer.periodic(const Duration(seconds: 4), (Timer timer) {
+      if (_banners.isEmpty) return;
       if (_currentPage < _banners.length - 1) {
         _currentPage++;
       } else {
@@ -43,14 +68,26 @@ class _BannerSliderState extends State<BannerSlider> {
 
   @override
   void dispose() {
-    _timer?.cancel(); // <--- QUAN TRỌNG: Hủy timer để không bị treo máy
+    _timer?.cancel();
     _pageController.dispose();
     super.dispose();
   }
 
+  // Hàm xử lý link ảnh
+  String _getImageUrl(String url) {
+    if (url.startsWith('http')) return url;
+    return "${EventService.serverUrl}/$url".replaceAll(
+      RegExp(r'(?<!:)/{2,}'),
+      '/',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Không set height cứng ở đây nữa, để nó theo height của cha
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
     return Stack(
       alignment: Alignment.bottomCenter,
       children: [
@@ -63,17 +100,23 @@ class _BannerSliderState extends State<BannerSlider> {
             });
           },
           itemBuilder: (context, index) {
+            final banner = _banners[index];
+            final imgUrl = _getImageUrl(banner['bannerUrl']);
+
             return Container(
               margin: const EdgeInsets.symmetric(horizontal: 5),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(15),
                 image: DecorationImage(
-                  image: NetworkImage(_banners[index]),
+                  image: NetworkImage(imgUrl),
                   fit: BoxFit.cover,
+                  onError: (exception, stackTrace) {
+                    // Xử lý khi lỗi ảnh
+                  },
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.1),
+                    color: Colors.black.withOpacity(0.1),
                     blurRadius: 10,
                     offset: const Offset(0, 5),
                   ),
@@ -82,7 +125,7 @@ class _BannerSliderState extends State<BannerSlider> {
             );
           },
         ),
-        // Dấu chấm chỉ số trang (Indicator)
+        // Indicator
         Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: Row(
@@ -96,7 +139,7 @@ class _BannerSliderState extends State<BannerSlider> {
                 decoration: BoxDecoration(
                   color: _currentPage == index
                       ? Colors.white
-                      : Colors.white.withValues(alpha: 0.5),
+                      : Colors.white.withOpacity(0.5),
                   borderRadius: BorderRadius.circular(3),
                 ),
               );

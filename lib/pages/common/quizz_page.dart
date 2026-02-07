@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 import '../../data/mock_data.dart';
-import '../../services/auth_service.dart'; // <--- Import Service
+import '../../services/earn_service.dart';
 
 class QuizPage extends StatefulWidget {
-  final String articleTitle;
-  final List<QuizQuestion> questions;
+  // Cho phép null (Đã xóa từ khóa required)
+  final dynamic quizData;
+  final String? quizId;
+  final String title;
 
   const QuizPage({
     super.key,
-    required this.articleTitle,
-    required this.questions,
+    this.quizData, // Không bắt buộc
+    this.quizId, // Nhận thêm ID
+    this.title = "Quiz",
   });
 
   @override
@@ -21,21 +24,72 @@ class _QuizPageState extends State<QuizPage> {
   int _score = 0;
   int? _selectedAnswerIndex;
   bool _isAnswered = false;
-  bool _isSaving = false; // Biến trạng thái đang lưu điểm
+  bool _isSaving = false;
 
-  void _answerQuestion(int index) {
+  bool _isLoading = true;
+  List<dynamic> _questions = [];
+  late String _realQuizId;
+
+  String _displayTitle = "Quiz";
+
+  @override
+  void initState() {
+    super.initState();
+    _displayTitle = widget.title; // Gán giá trị mặc định ban đầu
+    _initData();
+  }
+
+  Future<void> _initData() async {
+    // 1. Nếu có Data sẵn (Từ Săn điểm)
+    if (widget.quizData != null) {
+      if (mounted) {
+        setState(() {
+          _questions = widget.quizData['questions'] ?? [];
+          _displayTitle = widget.quizData['title'] ?? widget.title;
+
+          var rawId = widget.quizData['_id'];
+          _realQuizId = rawId is Map ? rawId['\$oid'] : rawId.toString();
+
+          _isLoading = false;
+        });
+      }
+    }
+    // 2. Nếu chỉ có ID (Từ trang Home)
+    else if (widget.quizId != null) {
+      try {
+        _realQuizId = widget.quizId!;
+
+        final data = await EarnService.getQuizDetail(_realQuizId);
+
+        if (mounted) {
+          setState(() {
+            _questions = data['questions'] ?? [];
+            _displayTitle = data['title'] ?? widget.title;
+            _isLoading = false;
+          });
+        }
+      } catch (e) {
+        if (mounted) setState(() => _isLoading = false);
+        print("Lỗi tải Quiz: $e");
+      }
+    } else {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _answerQuestion(int index, bool isCorrect) {
     if (_isAnswered) return;
 
     setState(() {
       _selectedAnswerIndex = index;
       _isAnswered = true;
-      if (index == widget.questions[_currentIndex].correctAnswerIndex) {
+      if (isCorrect) {
         _score++;
       }
     });
 
     Future.delayed(const Duration(seconds: 1), () {
-      if (_currentIndex < widget.questions.length - 1) {
+      if (_currentIndex < _questions.length - 1) {
         setState(() {
           _currentIndex++;
           _selectedAnswerIndex = null;
@@ -47,41 +101,56 @@ class _QuizPageState extends State<QuizPage> {
     });
   }
 
-  // --- LOGIC KẾT THÚC & CỘNG ĐIỂM THẬT ---
   Future<void> _finishQuiz() async {
-    int passingScore = 3;
+    setState(() => _isSaving = true);
 
-    if (_score >= passingScore) {
-      // 1. Hiện dialog loading hoặc chờ xử lý
-      setState(
-        () => _isSaving = true,
-      ); // (Optional: dùng để hiện loading nếu muốn)
+    // Gọi API nộp bài
+    final result = await EarnService.claimQuiz(_realQuizId);
 
-      // 2. Gọi API cộng điểm thật (20 điểm)
-      bool success = await AuthService.addPoints(20);
+    if (!mounted) return;
+    setState(() => _isSaving = false);
 
-      // 3. Cập nhật thống kê cục bộ
+    if (result != null && result['success'] == true) {
+      if (result['newPoints'] != null) {
+        UserData.points = result['newPoints'];
+      }
       UserData.quizzesDoneToday++;
 
-      if (success) {
-        // Hiện popup chúc mừng
-        if (mounted) _showRewardDialog();
-      } else {
-        // Lỗi mạng vẫn cho qua nhưng báo lỗi nhẹ (hoặc xử lý tùy ý)
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Lỗi kết nối! Điểm chưa được lưu.")),
-          );
-          _showRewardDialog(); // Vẫn hiện để không cụt hứng user
-        }
-      }
+      int pointsEarned = result['pointsEarned'] ?? 20;
+      _showRewardDialog(pointsEarned);
     } else {
-      _showFailDialog();
+      String message = result?['message'] ?? "Lỗi kết nối!";
+      if (message.contains("đã làm") || message.contains("đã nhận")) {
+        _showAlreadyDoneDialog(message);
+      } else {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
+        _showFailDialog();
+      }
     }
   }
 
-  // DIALOG 1: NHẬN KIM CƯƠNG
-  void _showRewardDialog() {
+  void _showAlreadyDoneDialog(String msg) {
+    showDialog(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text("Thông báo"),
+        content: Text(msg),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.pop(context);
+            },
+            child: const Text("OK"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showRewardDialog(int points) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -106,9 +175,9 @@ class _QuizPageState extends State<QuizPage> {
                 "Cộng điểm tích lũy",
                 style: TextStyle(color: Colors.grey),
               ),
-              const Text(
-                "20",
-                style: TextStyle(
+              Text(
+                "$points",
+                style: const TextStyle(
                   fontSize: 40,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFF2C2C54),
@@ -135,7 +204,6 @@ class _QuizPageState extends State<QuizPage> {
     );
   }
 
-  // DIALOG 2: KẾT QUẢ THÀNH CÔNG
   void _showSuccessResultDialog() {
     showDialog(
       context: context,
@@ -154,7 +222,7 @@ class _QuizPageState extends State<QuizPage> {
                 style: TextStyle(color: Colors.grey),
               ),
               Text(
-                "$_score/${widget.questions.length}",
+                "$_score/${_questions.length}",
                 style: const TextStyle(
                   fontSize: 40,
                   fontWeight: FontWeight.bold,
@@ -185,7 +253,6 @@ class _QuizPageState extends State<QuizPage> {
     );
   }
 
-  // DIALOG 3: THẤT BẠI (Giữ nguyên)
   void _showFailDialog() {
     showDialog(
       context: context,
@@ -200,11 +267,11 @@ class _QuizPageState extends State<QuizPage> {
               const Icon(Icons.cancel, color: Colors.red, size: 60),
               const SizedBox(height: 10),
               const Text(
-                "Chưa đạt yêu cầu",
+                "Chưa hoàn thành",
                 style: TextStyle(color: Colors.grey),
               ),
               Text(
-                "$_score/${widget.questions.length}",
+                "$_score/${_questions.length}",
                 style: const TextStyle(
                   fontSize: 40,
                   fontWeight: FontWeight.bold,
@@ -213,7 +280,7 @@ class _QuizPageState extends State<QuizPage> {
               ),
               const SizedBox(height: 10),
               const Text(
-                "Bạn cần đúng ít nhất 3 câu để nhận điểm.\nHãy thử lại nhé!",
+                "Có lỗi xảy ra hoặc bạn đã nhận thưởng rồi.",
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 13, color: Colors.redAccent),
               ),
@@ -239,10 +306,32 @@ class _QuizPageState extends State<QuizPage> {
   }
 
   @override
-  @override
   Widget build(BuildContext context) {
-    final question = widget.questions[_currentIndex];
-    // --- PHẦN GIAO DIỆN CHÍNH ---
+    if (_isLoading) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text("Đang tải..."),
+          backgroundColor: const Color(0xFFB71C1C),
+          foregroundColor: Colors.white,
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_questions.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text("Lỗi"),
+          backgroundColor: const Color(0xFFB71C1C),
+          foregroundColor: Colors.white,
+        ),
+        body: const Center(child: Text("Không có câu hỏi")),
+      );
+    }
+
+    final question = _questions[_currentIndex];
+    final List<dynamic> options = question['answers'] ?? [];
+
     return Stack(
       children: [
         Scaffold(
@@ -254,7 +343,7 @@ class _QuizPageState extends State<QuizPage> {
               onPressed: () => Navigator.pop(context),
             ),
             title: Text(
-              widget.articleTitle,
+              _displayTitle,
               style: const TextStyle(color: Colors.white, fontSize: 16),
             ),
             centerTitle: true,
@@ -263,7 +352,6 @@ class _QuizPageState extends State<QuizPage> {
             padding: const EdgeInsets.all(20),
             child: Column(
               children: [
-                // Khung câu hỏi
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(25),
@@ -281,7 +369,7 @@ class _QuizPageState extends State<QuizPage> {
                   child: Column(
                     children: [
                       Text(
-                        "Câu hỏi ${_currentIndex + 1} / ${widget.questions.length}",
+                        "Câu hỏi ${_currentIndex + 1} / ${_questions.length}",
                         style: const TextStyle(
                           color: Colors.white70,
                           fontSize: 12,
@@ -289,7 +377,7 @@ class _QuizPageState extends State<QuizPage> {
                       ),
                       const SizedBox(height: 15),
                       Text(
-                        question.question,
+                        question['content'] ?? "",
                         textAlign: TextAlign.center,
                         style: const TextStyle(
                           color: Colors.white,
@@ -303,83 +391,91 @@ class _QuizPageState extends State<QuizPage> {
                   ),
                 ),
                 const SizedBox(height: 30),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: options.length,
+                    itemBuilder: (context, index) {
+                      final option = options[index];
+                      Color bgColor = Colors.white;
+                      Color borderColor = Colors.transparent;
+                      Color textColor = Colors.black87;
+                      Widget? icon;
 
-                // Danh sách đáp án
-                ...List.generate(question.options.length, (index) {
-                  Color bgColor = Colors.white;
-                  Color borderColor = Colors.transparent;
-                  Color textColor = Colors.black87;
-                  Widget? icon;
+                      if (_isAnswered) {
+                        if (option['is_correct'] == true) {
+                          bgColor = Colors.green.shade50;
+                          borderColor = Colors.green;
+                          textColor = Colors.green;
+                          icon = const Icon(
+                            Icons.check_circle,
+                            color: Colors.green,
+                            size: 20,
+                          );
+                        } else if (index == _selectedAnswerIndex) {
+                          bgColor = Colors.red.shade50;
+                          borderColor = Colors.red;
+                          textColor = Colors.red;
+                          icon = const Icon(
+                            Icons.cancel,
+                            color: Colors.red,
+                            size: 20,
+                          );
+                        }
+                      }
 
-                  if (_isAnswered) {
-                    if (index == question.correctAnswerIndex) {
-                      bgColor = Colors.green.shade50;
-                      borderColor = Colors.green;
-                      textColor = Colors.green;
-                      icon = const Icon(
-                        Icons.check_circle,
-                        color: Colors.green,
-                        size: 20,
-                      );
-                    } else if (index == _selectedAnswerIndex) {
-                      bgColor = Colors.red.shade50;
-                      borderColor = Colors.red;
-                      textColor = Colors.red;
-                      icon = const Icon(
-                        Icons.cancel,
-                        color: Colors.red,
-                        size: 20,
-                      );
-                    }
-                  }
-
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 15),
-                    child: GestureDetector(
-                      onTap: () => _answerQuestion(index),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 15,
-                          horizontal: 20,
-                        ),
-                        decoration: BoxDecoration(
-                          color: bgColor,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: borderColor == Colors.transparent
-                                ? Colors.grey.shade300
-                                : borderColor,
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 15),
+                        child: GestureDetector(
+                          onTap: () => _answerQuestion(
+                            index,
+                            option['is_correct'] ?? false,
                           ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.grey.withValues(alpha: 0.1),
-                              blurRadius: 5,
-                              offset: const Offset(0, 2),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 15,
+                              horizontal: 20,
                             ),
-                          ],
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              question.options[index],
-                              style: TextStyle(
-                                color: textColor,
-                                fontWeight: FontWeight.w500,
+                            decoration: BoxDecoration(
+                              color: bgColor,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: borderColor == Colors.transparent
+                                    ? Colors.grey.shade300
+                                    : borderColor,
                               ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.grey.withValues(alpha: 0.1),
+                                  blurRadius: 5,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
                             ),
-                            if (icon != null) icon,
-                          ],
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    option['content'] ?? "",
+                                    style: TextStyle(
+                                      color: textColor,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                                if (icon != null) icon,
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                  );
-                }),
+                      );
+                    },
+                  ),
+                ),
               ],
             ),
           ),
         ),
-        // Hiển thị lớp phủ loading khi đang lưu điểm
         if (_isSaving)
           Container(
             color: Colors.black.withValues(alpha: 0.5),

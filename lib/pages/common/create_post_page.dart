@@ -1,11 +1,11 @@
-import 'dart:io'; // Để xử lý File
-import 'package:file_picker/file_picker.dart'; // <--- MỚI: Thư viện chọn tệp
-import 'package:flutter/foundation.dart'; // Để check kIsWeb
+import 'dart:io';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart'; // Thư viện ảnh
-import 'package:http/http.dart' as http; // Gọi API upload
-import '../../data/mock_data.dart';
+import 'package:image_picker/image_picker.dart';
+import '../../services/forum_service.dart';
+import '../../services/user_service.dart';
 
 class CreatePostPage extends StatefulWidget {
   final String postType;
@@ -25,36 +25,39 @@ class _CreatePostPageState extends State<CreatePostPage> {
   final TextEditingController _phoneController = TextEditingController();
 
   // --- DATA ---
+  List<String> _topics = [];
+  List<String> _categories = [];
+  bool _isLoadingConfig = true;
+
   String? _selectedTopic;
-  final List<String> _topics = [
-    "Mẹo sống xanh",
-    "Tin tức môi trường",
-    "Hỏi đáp",
-    "Góc thảo luận",
-  ];
-
   String? _selectedCategory;
-  final List<String> _categories = [
-    "Đồ tái chế",
-    "Đồ Handmade",
-    "Nguyên liệu thô",
-    "Dụng cụ làm vườn",
-    "Sách báo cũ",
-    "Khác",
-  ];
-
   String _productType = "Miễn phí";
 
   // --- UPLOAD LOGIC ---
-  bool _isUploading = false; // Trạng thái đang upload
-
-  // 1. ẢNH
+  bool _isUploading = false;
   XFile? _pickedImage;
-  String? _uploadedImageUrl;
+  PlatformFile? _pickedFile;
 
-  // 2. FILE ĐÍNH KÈM (MỚI)
-  PlatformFile? _pickedFile; // <--- MỚI: Biến lưu file đã chọn
-  String? _uploadedFileUrl; // <--- MỚI: Biến lưu link file sau khi upload
+  // --- INIT STATE: GỌI API LẤY DANH SÁCH ---
+  @override
+  void initState() {
+    super.initState();
+    _loadConfigData();
+  }
+
+  // Hàm tải dữ liệu Config từ Backend
+  Future<void> _loadConfigData() async {
+    final topicsData = await ForumService.fetchConfigList('topic');
+    final productsData = await ForumService.fetchConfigList('product_type');
+
+    if (mounted) {
+      setState(() {
+        _topics = topicsData;
+        _categories = productsData;
+        _isLoadingConfig = false;
+      });
+    }
+  }
 
   // Hàm định dạng tiền tệ
   String formatCurrency(String value) {
@@ -82,12 +85,11 @@ class _CreatePostPageState extends State<CreatePostPage> {
     }
   }
 
-  // --- 2. CHỌN FILE TÀI LIỆU (MỚI) ---
+  // --- 2. CHỌN FILE TÀI LIỆU ---
   Future<void> _pickFile() async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        // Cho phép các định dạng văn phòng phổ biến
         allowedExtensions: [
           'pdf',
           'doc',
@@ -104,44 +106,11 @@ class _CreatePostPageState extends State<CreatePostPage> {
 
       if (result != null) {
         setState(() {
-          _pickedFile = result.files.first; // Lấy file đầu tiên
+          _pickedFile = result.files.first;
         });
       }
     } catch (e) {
       print("Lỗi chọn file: $e");
-    }
-  }
-
-  // --- 3. HÀM UPLOAD CHUNG (Sửa lại để dùng cho cả Ảnh và File) ---
-  Future<String?> _uploadFileGeneric(List<int> bytes, String fileName) async {
-    // URL của Backend
-    String uploadUrl = 'http://localhost:5000/api/upload';
-
-    try {
-      var request = http.MultipartRequest('POST', Uri.parse(uploadUrl));
-
-      request.files.add(
-        http.MultipartFile.fromBytes(
-          'image', // Backend đang đón key là 'image', ta cứ giữ nguyên
-          bytes,
-          filename: fileName,
-        ),
-      );
-
-      var res = await request.send();
-
-      if (res.statusCode == 200) {
-        var responseString = await res.stream.bytesToString();
-        // Server trả về đường dẫn tương đối (vd: /uploads/abc.pdf)
-        // Ta cần nối thêm host vào
-        return 'http://localhost:5000$responseString';
-      } else {
-        print("Upload thất bại: ${res.statusCode}");
-        return null;
-      }
-    } catch (e) {
-      print("Lỗi upload: $e");
-      return null;
     }
   }
 
@@ -152,10 +121,12 @@ class _CreatePostPageState extends State<CreatePostPage> {
       _showError("Bạn chưa điền tiêu đề hoặc nội dung!");
       return false;
     }
+    // Validate Topic (Kiến thức)
     if (widget.postType == "Kiến thức" && _selectedTopic == null) {
       _showError("Vui lòng chọn chủ đề!");
       return false;
     }
+    // Validate Category (Sản phẩm)
     if (widget.postType == "Sản phẩm") {
       if (_selectedCategory == null) {
         _showError("Vui lòng chọn loại sản phẩm!");
@@ -180,11 +151,10 @@ class _CreatePostPageState extends State<CreatePostPage> {
     );
   }
 
-  // --- 3. GIAO DIỆN XEM TRƯỚC (HIỆN ĐẠI HÓA) ---
+  // --- 3. XEM TRƯỚC ---
   void _showPreviewDialog() {
     if (!_validateInputs()) return;
 
-    // Logic hiển thị ảnh preview (Giữ nguyên)
     ImageProvider previewImage;
     if (_pickedImage != null) {
       if (kIsWeb) {
@@ -214,7 +184,6 @@ class _CreatePostPageState extends State<CreatePostPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Header Dialog
                 Padding(
                   padding: const EdgeInsets.all(15),
                   child: Row(
@@ -235,13 +204,10 @@ class _CreatePostPageState extends State<CreatePostPage> {
                   ),
                 ),
                 const Divider(height: 1),
-
-                // BODY CỦA CARD
                 SingleChildScrollView(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Ảnh Cover
                       Container(
                         height: 200,
                         width: double.infinity,
@@ -253,13 +219,12 @@ class _CreatePostPageState extends State<CreatePostPage> {
                           ),
                         ),
                       ),
-
                       Padding(
                         padding: const EdgeInsets.all(15),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (widget.postType == "Sản phẩm")
+                            if (widget.postType == "Sản phẩm") ...[
                               Row(
                                 children: [
                                   Container(
@@ -269,7 +234,12 @@ class _CreatePostPageState extends State<CreatePostPage> {
                                     ),
                                     decoration: BoxDecoration(
                                       color: _productType == "Miễn phí"
-                                          ? Colors.green
+                                          ? const Color.fromARGB(
+                                              255,
+                                              162,
+                                              202,
+                                              224,
+                                            )
                                           : Colors.red,
                                       borderRadius: BorderRadius.circular(5),
                                     ),
@@ -295,7 +265,7 @@ class _CreatePostPageState extends State<CreatePostPage> {
                                       borderRadius: BorderRadius.circular(5),
                                     ),
                                     child: Text(
-                                      _selectedCategory ?? "Sản phẩm",
+                                      _selectedCategory ?? "",
                                       style: TextStyle(
                                         color: Colors.grey[800],
                                         fontSize: 12,
@@ -304,100 +274,39 @@ class _CreatePostPageState extends State<CreatePostPage> {
                                   ),
                                 ],
                               ),
-
-                            const SizedBox(height: 10),
+                              const SizedBox(height: 10),
+                            ],
                             Text(
                               _titleController.text,
                               style: const TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
-                                height: 1.3,
                               ),
                             ),
                             const SizedBox(height: 10),
-                            Text(
-                              _contentController.text,
-                              maxLines: 3,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.black87,
-                                height: 1.5,
+                            Text(_contentController.text),
+                            if (_pickedFile != null) ...[
+                              const SizedBox(height: 15),
+                              Text(
+                                "Đính kèm: ${_pickedFile!.name}",
+                                style: const TextStyle(color: Colors.blue),
                               ),
-                            ),
-                            const SizedBox(height: 15),
-
-                            // <--- MỚI: HIỂN THỊ FILE TRONG PREVIEW (NẾU CÓ)
-                            if (_pickedFile != null)
-                              Container(
-                                padding: const EdgeInsets.all(10),
-                                margin: const EdgeInsets.only(bottom: 15),
-                                decoration: BoxDecoration(
-                                  color: Colors.blue.shade50,
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: Colors.blue.shade200,
-                                  ),
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.attach_file,
-                                      color: Colors.blue,
-                                      size: 20,
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Text(
-                                        "Đính kèm: ${_pickedFile!.name}",
-                                        style: const TextStyle(
-                                          color: Colors.blue,
-                                          fontWeight: FontWeight.w500,
-                                          fontSize: 13,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-
-                            Row(
-                              children: [
-                                CircleAvatar(
-                                  radius: 12,
-                                  backgroundImage: NetworkImage(
-                                    UserData.avatar,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  UserData.name,
-                                  style: TextStyle(
-                                    color: Colors.grey[600],
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ),
+                            ],
                           ],
                         ),
                       ),
                     ],
                   ),
                 ),
-
                 const Divider(height: 1),
-
-                // Nút Đăng
                 Padding(
                   padding: const EdgeInsets.all(15),
                   child: SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
                       onPressed: () {
-                        Navigator.pop(context); // Tắt preview
-                        _handlePost(); // Gọi hàm đăng thật
+                        Navigator.pop(context);
+                        _handlePost();
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF1A237E),
@@ -424,99 +333,59 @@ class _CreatePostPageState extends State<CreatePostPage> {
     );
   }
 
-  // --- HÀM TẠO DỮ LIỆU ---
-  ForumPost _createPostData() {
-    double? postPrice;
-    if (widget.postType == "Sản phẩm") {
-      postPrice = _productType == "Miễn phí"
-          ? 0
-          : double.tryParse(_priceController.text) ?? 0;
-    }
-
-    String finalImage =
-        _uploadedImageUrl ??
-        (widget.postType == "Kiến thức"
-            ? "https://img.freepik.com/free-vector/garbage-sorting-concept-illustration_114360-5238.jpg"
-            : "https://i.pinimg.com/736x/e8/35/66/e83566735e2632280d28589710080614.jpg");
-
-    return ForumPost(
-      id: "", // ID sẽ do Backend cấp sau
-      authorName: UserData.name,
-      authorAvatar: UserData.avatar,
-      time: "Vừa xong",
-      timestamp: DateTime.now(),
-      tagName: widget.postType,
-      topic: _selectedTopic,
-      category: _selectedCategory,
-      price: postPrice,
-      content: widget.postType == "Kiến thức"
-          ? "${_titleController.text}\n\n${_contentController.text}"
-          : "📦 ${_titleController.text}\n"
-                "🏷️ Loại: $_selectedCategory\n"
-                "🔢 Số lượng: ${_quantityController.text}\n"
-                "${_productType == "Miễn phí" ? "🎁 Miễn phí" : "💵 ${_priceController.text} đ"}\n"
-                "----------------\n"
-                "📝 ${_contentController.text}\n"
-                "📞 Liên hệ: ${_phoneController.text}",
-      image: finalImage,
-
-      // <--- MỚI: TRUYỀN THÔNG TIN FILE VÀO
-      attachmentUrl: _uploadedFileUrl,
-      attachmentName: _pickedFile?.name,
-
-      likes: 0,
-      comments: 0,
-      isLiked: false,
-    );
-  }
-
-  // --- XỬ LÝ ĐĂNG BÀI (ĐÃ CẬP NHẬT UPLOAD FILE) ---
+  // --- XỬ LÝ ĐĂNG BÀI (LOGIC CHUẨN) ---
   Future<void> _handlePost() async {
     if (_validateInputs()) {
       setState(() => _isUploading = true);
 
-      // 1. UPLOAD ẢNH (NẾU CÓ)
-      if (_pickedImage != null && _uploadedImageUrl == null) {
-        var bytes = await _pickedImage!.readAsBytes();
-        _uploadedImageUrl = await _uploadFileGeneric(bytes, _pickedImage!.name);
-
-        if (_uploadedImageUrl == null) {
-          _showError("Lỗi upload ảnh! Đang dùng ảnh mặc định.");
-        }
+      double? priceVal;
+      if (widget.postType == "Sản phẩm" && _productType == "Có phí") {
+        String cleanPrice = _priceController.text.replaceAll('.', '');
+        priceVal = double.tryParse(cleanPrice);
       }
 
-      // 2. UPLOAD FILE ĐÍNH KÈM (NẾU CÓ) <--- MỚI
-      if (_pickedFile != null && _uploadedFileUrl == null) {
-        // Đọc bytes của file
-        List<int>? fileBytes;
-
-        if (kIsWeb) {
-          fileBytes = _pickedFile!.bytes; // Web có sẵn bytes
-        } else if (_pickedFile!.path != null) {
-          fileBytes = File(
-            _pickedFile!.path!,
-          ).readAsBytesSync(); // Mobile đọc từ path
-        }
-
-        if (fileBytes != null) {
-          _uploadedFileUrl = await _uploadFileGeneric(
-            fileBytes,
-            _pickedFile!.name,
-          );
-        } else {
-          _showError("Không thể đọc file đính kèm!");
-        }
+      int? quantityVal;
+      if (widget.postType == "Sản phẩm") {
+        quantityVal = int.tryParse(_quantityController.text);
       }
+
+      // Gọi Service
+      bool success = await ForumService.createPost(
+        widget.postType,
+        _titleController.text,
+        _contentController.text,
+        _pickedImage,
+        _pickedFile,
+
+        topic: _selectedTopic,
+        category: _selectedCategory,
+        price: priceVal,
+        quantity: quantityVal,
+        phone: _phoneController.text,
+      );
 
       setState(() => _isUploading = false);
 
-      // 3. Đóng gói và trả về
-      final newPost = _createPostData();
-      Navigator.pop(context, newPost);
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Đã đăng bài thành công!")));
+      if (success) {
+        if (mounted) {
+          Navigator.pop(context, true);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Đã đăng bài thành công! +20 điểm"),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Đăng bài thất bại, vui lòng thử lại!"),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
     }
   }
 
@@ -538,261 +407,281 @@ class _CreatePostPageState extends State<CreatePostPage> {
         ),
         centerTitle: true,
       ),
-      body: Stack(
-        // Bọc Stack để hiển thị Loading
-        children: [
-          Container(
-            width: double.infinity,
-            height: double.infinity,
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Colors.white, Color(0xFFFCE4EC), Color(0xFFE3F2FD)],
-              ),
-            ),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // User Info
-                  Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 28,
-                        backgroundImage: NetworkImage(UserData.avatar),
-                      ),
-                      const SizedBox(width: 15),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            UserData.name,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                              color: Color(0xFF1A237E),
-                            ),
-                          ),
-                          const SizedBox(height: 5),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: tagColor,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              widget.postType,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 25),
-
-                  if (isKnowledge)
-                    _buildKnowledgeForm()
-                  else
-                    _buildProductForm(),
-
-                  const SizedBox(height: 20),
-
-                  // --- VÙNG HIỂN THỊ ẢNH ---
-                  if (_pickedImage != null)
-                    Stack(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(15),
-                          child: kIsWeb
-                              ? Image.network(
-                                  _pickedImage!.path,
-                                  height: 200,
-                                  width: double.infinity,
-                                  fit: BoxFit.cover,
-                                )
-                              : Image.file(
-                                  File(_pickedImage!.path),
-                                  height: 200,
-                                  width: double.infinity,
-                                  fit: BoxFit.cover,
-                                ),
-                        ),
-                        Positioned(
-                          top: 10,
-                          right: 10,
-                          child: GestureDetector(
-                            onTap: () => setState(() => _pickedImage = null),
-                            child: const CircleAvatar(
-                              backgroundColor: Colors.red,
-                              radius: 15,
-                              child: Icon(
-                                Icons.close,
-                                color: Colors.white,
-                                size: 18,
-                              ),
-                            ),
-                          ),
-                        ),
+      body: _isLoadingConfig
+          ? const Center(child: CircularProgressIndicator())
+          : Stack(
+              children: [
+                Container(
+                  width: double.infinity,
+                  height: double.infinity,
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.white,
+                        Color(0xFFFCE4EC),
+                        Color(0xFFE3F2FD),
                       ],
                     ),
-
-                  // --- VÙNG HIỂN THỊ FILE ĐÍNH KÈM (MỚI) ---
-                  if (_pickedFile != null)
-                    Container(
-                      margin: const EdgeInsets.only(top: 15),
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: Colors.blue.shade200),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Colors.black12,
-                            blurRadius: 2,
-                            offset: Offset(0, 1),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.attach_file,
-                            color: Colors.blue,
-                            size: 24,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
+                  ),
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // User Info
+                        Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 28,
+                              backgroundImage: NetworkImage(
+                                UserData.avatar ??
+                                    "https://via.placeholder.com/150",
+                              ),
+                            ),
+                            const SizedBox(width: 15),
+                            Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  _pickedFile!.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                                  UserData.name ?? "Người dùng",
                                   style: const TextStyle(
                                     fontWeight: FontWeight.bold,
-                                    color: Colors.blue,
+                                    fontSize: 16,
+                                    color: Color(0xFF1A237E),
                                   ),
                                 ),
-                                Text(
-                                  "${(_pickedFile!.size / 1024).toStringAsFixed(1)} KB",
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey,
+                                const SizedBox(height: 5),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: tagColor,
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Text(
+                                    widget.postType,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
                                 ),
                               ],
                             ),
+                          ],
+                        ),
+                        const SizedBox(height: 25),
+
+                        // Form nhập liệu
+                        if (isKnowledge)
+                          _buildKnowledgeForm()
+                        else
+                          _buildProductForm(),
+
+                        const SizedBox(height: 20),
+
+                        // Hiển thị ảnh đã chọn
+                        if (_pickedImage != null)
+                          Stack(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(15),
+                                child: kIsWeb
+                                    ? Image.network(
+                                        _pickedImage!.path,
+                                        height: 200,
+                                        width: double.infinity,
+                                        fit: BoxFit.cover,
+                                      )
+                                    : Image.file(
+                                        File(_pickedImage!.path),
+                                        height: 200,
+                                        width: double.infinity,
+                                        fit: BoxFit.cover,
+                                      ),
+                              ),
+                              Positioned(
+                                top: 10,
+                                right: 10,
+                                child: GestureDetector(
+                                  onTap: () =>
+                                      setState(() => _pickedImage = null),
+                                  child: const CircleAvatar(
+                                    backgroundColor: Colors.red,
+                                    radius: 15,
+                                    child: Icon(
+                                      Icons.close,
+                                      color: Colors.white,
+                                      size: 18,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.close, color: Colors.red),
-                            onPressed: () => setState(() => _pickedFile = null),
+
+                        // Hiển thị file đã chọn
+                        if (_pickedFile != null)
+                          Container(
+                            margin: const EdgeInsets.only(top: 15),
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.blue.shade200),
+                              boxShadow: const [
+                                BoxShadow(
+                                  color: Colors.black12,
+                                  blurRadius: 2,
+                                  offset: Offset(0, 1),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.attach_file,
+                                  color: Colors.blue,
+                                  size: 24,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        _pickedFile!.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.blue,
+                                        ),
+                                      ),
+                                      Text(
+                                        "${(_pickedFile!.size / 1024).toStringAsFixed(1)} KB",
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.close,
+                                    color: Colors.red,
+                                  ),
+                                  onPressed: () =>
+                                      setState(() => _pickedFile = null),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                        const SizedBox(height: 30),
+
+                        // Buttons Chọn ảnh/file
+                        Row(
+                          children: [
+                            _buildMediaButton(
+                              Icons.image_outlined,
+                              "Thư viện",
+                              const Color(0xFFFFF0F0),
+                              onTap: _pickImage,
+                            ),
+                            const SizedBox(width: 15),
+                            _buildMediaButton(
+                              Icons.attach_file,
+                              "Đính kèm",
+                              const Color(0xFFF0F4FF),
+                              onTap: _pickFile,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 30),
+
+                        // Buttons Submit
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: _showPreviewDialog,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.grey[300],
+                                  foregroundColor: Colors.black87,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 15,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(15),
+                                  ),
+                                ),
+                                child: const Text(
+                                  "Xem trước",
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 15),
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: _handlePost,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.grey[300],
+                                  foregroundColor: const Color(0xFF1A237E),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 15,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(15),
+                                  ),
+                                ),
+                                child: const Text(
+                                  "Đăng",
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 50),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // Loading Overlay
+                if (_isUploading)
+                  Container(
+                    color: Colors.black.withOpacity(0.5),
+                    child: const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(color: Colors.white),
+                          SizedBox(height: 10),
+                          Text(
+                            "Đang tải dữ liệu lên...",
+                            style: TextStyle(color: Colors.white),
                           ),
                         ],
                       ),
                     ),
-
-                  const SizedBox(height: 30),
-
-                  // Buttons
-                  Row(
-                    children: [
-                      _buildMediaButton(
-                        Icons.image_outlined,
-                        "Thư viện",
-                        const Color(0xFFFFF0F0),
-                        onTap: _pickImage,
-                      ),
-                      const SizedBox(width: 15),
-                      // <--- MỚI: KÍCH HOẠT NÚT ĐÍNH KÈM
-                      _buildMediaButton(
-                        Icons.attach_file,
-                        "Đính kèm",
-                        const Color(0xFFF0F4FF),
-                        onTap: _pickFile,
-                      ),
-                    ],
                   ),
-                  const SizedBox(height: 30),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: _showPreviewDialog,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.grey[300],
-                            foregroundColor: Colors.black87,
-                            padding: const EdgeInsets.symmetric(vertical: 15),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(15),
-                            ),
-                          ),
-                          child: const Text(
-                            "Xem trước",
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 15),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: _handlePost,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.grey[300],
-                            foregroundColor: const Color(0xFF1A237E),
-                            padding: const EdgeInsets.symmetric(vertical: 15),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(15),
-                            ),
-                          ),
-                          child: const Text(
-                            "Đăng",
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 50),
-                ],
-              ),
+              ],
             ),
-          ),
-
-          // MÀN HÌNH LOADING KHI UPLOAD
-          if (_isUploading)
-            Container(
-              color: Colors.black.withOpacity(0.5),
-              child: const Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(color: Colors.white),
-                    SizedBox(height: 10),
-                    Text(
-                      "Đang tải dữ liệu lên...",
-                      style: TextStyle(color: Colors.white),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-        ],
-      ),
     );
   }
 
-  // --- CÁC WIDGET CON (GIỮ NGUYÊN) ---
+  // --- CÁC WIDGET CON ---
   Widget _buildMediaButton(
     IconData icon,
     String label,
@@ -1037,14 +926,17 @@ class _CreatePostPageState extends State<CreatePostPage> {
           ),
           isExpanded: true,
           icon: const Icon(Icons.keyboard_arrow_down),
-          items: items
-              .map(
-                (String item) => DropdownMenuItem<String>(
-                  value: item,
-                  child: Text(item, style: const TextStyle(fontSize: 14)),
-                ),
-              )
-              .toList(),
+          // Sửa lỗi: Nếu items rỗng, hoặc value không nằm trong items, tránh crash
+          items: items.isEmpty
+              ? []
+              : items
+                    .map(
+                      (String item) => DropdownMenuItem<String>(
+                        value: item,
+                        child: Text(item, style: const TextStyle(fontSize: 14)),
+                      ),
+                    )
+                    .toList(),
           onChanged: onChanged,
         ),
       ),

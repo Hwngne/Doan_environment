@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../data/mock_data.dart' hide UserData;
 import '../../components/app_background.dart';
 import '../common/edit_profile_page.dart';
 import 'redeem_points_page.dart';
@@ -11,12 +10,88 @@ import '../../services/user_service.dart';
 import '../auth/splash_page.dart';
 import '../club/event_management.dart';
 
-class ProfilePage extends StatelessWidget {
+
+class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
+
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  // Biến lưu dữ liệu profile
+  Map<String, dynamic>? _userProfile;
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchUserProfile(); // Gọi API ngay khi mở màn hình
+  }
+
+  // Hàm gọi API lấy dữ liệu
+  Future<void> _fetchUserProfile() async {
+    try {
+      final data = await UserService.getUserProfile();
+      if (mounted) {
+        setState(() {
+          _userProfile = data;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+          _isLoading = false;
+        });
+      }
+      print("Lỗi lấy profile: $e");
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final double screenHeight = MediaQuery.of(context).size.height;
+
+    // Hiển thị Loading (Giữ màn hình trắng hoặc hiện quay vòng ở giữa)
+    if (_isLoading) {
+      return Scaffold(
+        body: AppBackground(
+          child: const Center(
+            child: CircularProgressIndicator(color: Colors.white),
+          ),
+        ),
+      );
+    }
+
+    // Hiển thị Lỗi (Có nút thử lại)
+    if (_errorMessage != null) {
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text("Lỗi kết nối: $_errorMessage"),
+              ElevatedButton(
+                onPressed: _fetchUserProfile,
+                child: const Text("Thử lại"),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Lấy dữ liệu từ API trả về (Fallback nếu null)
+    final String name = _userProfile?['name'] ?? "Sinh viên";
+    final String role = _userProfile?['role'] ?? "student";
+    final String avatarUrl =
+        _userProfile?['avatar'] ?? "https://i.pravatar.cc/300";
+
+    // Logic hiển thị vai trò (nếu cần hiển thị tiếng Việt đẹp hơn)
+    final String displayRole = role == 'club' ? "Câu lạc bộ" : "Sinh viên";
 
     return Scaffold(
       backgroundColor: Colors.transparent, // Để lộ nền phía sau nếu có
@@ -24,7 +99,7 @@ class ProfilePage extends StatelessWidget {
         child: SingleChildScrollView(
           child: Column(
             children: [
-              // 1. HEADER (Màu đỏ + Avatar)
+              // 1. HEADER (Màu đỏ + Avatar) - GIỮ NGUYÊN GIAO DIỆN CŨ
               Container(
                 height: screenHeight * 0.35,
                 width: double.infinity,
@@ -46,14 +121,12 @@ class ProfilePage extends StatelessWidget {
                       ),
                       child: CircleAvatar(
                         radius: 50,
-                        backgroundImage: NetworkImage(
-                          UserData.avatar ?? "https://i.pravatar.cc/300",
-                        ),
+                        backgroundImage: NetworkImage(avatarUrl),
                       ),
                     ),
                     const SizedBox(height: 15),
                     Text(
-                      (UserData.name ?? "Sinh viên").toUpperCase(),
+                      name.toUpperCase(),
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -63,7 +136,7 @@ class ProfilePage extends StatelessWidget {
                     ),
                     const SizedBox(height: 5),
                     Text(
-                      UserData.role ?? "Sinh viên",
+                      displayRole, // Hiển thị role lấy từ API
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 14,
@@ -73,7 +146,7 @@ class ProfilePage extends StatelessWidget {
                 ),
               ),
 
-              // 2. BODY (Menu chức năng)
+              // 2. BODY (Menu chức năng) - GIỮ NGUYÊN GIAO DIỆN CŨ
               Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 20,
@@ -96,11 +169,15 @@ class ProfilePage extends StatelessWidget {
                       "Bài đăng của tôi",
                       Icons.arrow_forward_ios,
                     ),
-                    if (UserData.role == 'club')
+
+                    // Logic ẩn hiện mục CLB (Sử dụng biến role lấy từ API)
+                    if (role == 'club')
                       _buildMenuItem(
                         context,
                         "Quản lý sự kiện",
                         Icons.arrow_forward_ios,
+                        textColor: const Color(0xFFB71C1C), // Highlight cho CLB
+                        iconColor: const Color(0xFFB71C1C),
                       ),
 
                     _buildMenuItem(
@@ -145,7 +222,7 @@ class ProfilePage extends StatelessWidget {
     );
   }
 
-  // Widget Menu Item
+  // Widget Menu Item - ĐÃ KHÔI PHỤC VỀ GIAO DIỆN CŨ
   Widget _buildMenuItem(
     BuildContext context,
     String title,
@@ -157,19 +234,18 @@ class ProfilePage extends StatelessWidget {
     return InkWell(
       onTap: () async {
         if (title == "Chỉnh sửa hồ sơ") {
-          // Chuyển sang trang Edit
-          Navigator.push(
+          // Chuyển sang trang Edit và reload lại khi quay về
+          await Navigator.push(
             context,
             MaterialPageRoute(builder: (context) => const EditProfilePage()),
           );
+          _fetchUserProfile();
         } else if (title == "Đổi điểm tích lũy") {
-          // Chuyển sang trang Redeem Points
           Navigator.push(
             context,
             MaterialPageRoute(builder: (context) => const RedeemPointsPage()),
           );
         } else if (title == "Bài đăng của tôi") {
-          // Chuyển sang trang My Posts
           Navigator.push(
             context,
             MaterialPageRoute(builder: (context) => const MyPostsPage()),
@@ -182,7 +258,6 @@ class ProfilePage extends StatelessWidget {
             ),
           );
         } else if (title == "Lịch sử giao dịch") {
-          // Chuyển sang trang Transaction History
           Navigator.push(
             context,
             MaterialPageRoute(
@@ -190,10 +265,13 @@ class ProfilePage extends StatelessWidget {
             ),
           );
         } else if (title == "Săn điểm tích lũy") {
-          // Chuyển sang trang Earn Points
           Navigator.push(
             context,
             MaterialPageRoute(builder: (context) => const EarnPointsPage()),
+          );
+        } else if (title == "Xóa tài khoản") {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Tính năng đang phát triển")),
           );
         } else if (isLogout) {
           bool? confirm = await showDialog(
@@ -217,11 +295,8 @@ class ProfilePage extends StatelessWidget {
             ),
           );
 
-          // B. Nếu chọn Đồng ý
           if (confirm == true) {
             await AuthService.logout();
-
-            // Chuyển về SplashPage
             if (!context.mounted) return;
             Navigator.pushAndRemoveUntil(
               context,
@@ -229,10 +304,6 @@ class ProfilePage extends StatelessWidget {
               (route) => false,
             );
           }
-        } else {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text("Bấm vào: $title")));
         }
       },
       child: Container(
@@ -240,6 +311,7 @@ class ProfilePage extends StatelessWidget {
         decoration: const BoxDecoration(
           border: Border(bottom: BorderSide(color: Colors.transparent)),
         ),
+        // SỬ DỤNG ROW VỚI MAINAXISALIGNMENT.SPACEBETWEEN NHƯ CŨ
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [

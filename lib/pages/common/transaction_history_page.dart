@@ -1,6 +1,31 @@
 import 'package:flutter/material.dart';
-import '../../data/mock_data.dart';
 import '../../components/app_background.dart';
+import '../../services/gift_service.dart'; // Import Service
+
+// --- 1. ĐỊNH NGHĨA MODEL NỘI BỘ (Để không phụ thuộc mock_data) ---
+enum TransactionStatus { pending, completed, cancelled, expired }
+
+class TransactionItem {
+  final String id;
+  final String itemName;
+  final String statusText; // Text hiển thị
+  final TransactionStatus status;
+  final String role; // "Đổi quà"
+  final String price;
+  final DateTime date;
+  final DateTime expiresAt;
+
+  TransactionItem({
+    required this.id,
+    required this.itemName,
+    required this.statusText,
+    required this.status,
+    required this.role,
+    required this.price,
+    required this.date,
+    required this.expiresAt,
+  });
+}
 
 class TransactionHistoryPage extends StatefulWidget {
   const TransactionHistoryPage({super.key});
@@ -10,6 +35,13 @@ class TransactionHistoryPage extends StatefulWidget {
 }
 
 class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
+  // Service
+  final GiftService _giftService = GiftService();
+
+  // Dữ liệu
+  List<TransactionItem> _transactionList = [];
+  bool _isLoading = true;
+
   // Biến bộ lọc
   String _selectedRole = "All"; // All, Bên mua, Bên bán, Đổi quà
   DateTime? _fromDate;
@@ -21,16 +53,95 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
   @override
   void initState() {
     super.initState();
-    // Mặc định lọc từ đầu năm đến hiện tại
-    _fromDate = DateTime(2025, 1, 1);
+    // Mặc định lọc từ đầu năm 2024
+    _fromDate = DateTime(2024, 1, 1);
     _toDate = DateTime.now();
 
-    _fromDateController.text = "1/1/2025";
+    _fromDateController.text = "1/1/2024";
     _toDateController.text =
         "${_toDate!.day}/${_toDate!.month}/${_toDate!.year}";
+
+    // GỌI API LẤY DỮ LIỆU THẬT
+    _loadHistoryData();
   }
 
-  // Hàm chọn ngày (Tái sử dụng logic chuẩn từ MyPostsPage)
+  // --- HÀM TẢI DỮ LIỆU TỪ SERVER (ĐÃ SỬA LỖI AN TOÀN) ---
+  Future<void> _loadHistoryData() async {
+    try {
+      final rawData = await _giftService.fetchHistory();
+
+      List<TransactionItem> mappedList = [];
+
+      for (var item in rawData) {
+        // 1. Xử lý trạng thái từ Server (pending/used/expired)
+        String serverStatus = item['status'] ?? 'pending';
+        TransactionStatus statusEnum = TransactionStatus.pending;
+        String statusDisplay = "Chờ nhận quà";
+
+        if (serverStatus == 'used' || serverStatus == 'completed') {
+          statusEnum = TransactionStatus.completed;
+          statusDisplay = "Đã nhận quà";
+        } else if (serverStatus == 'expired') {
+          statusEnum = TransactionStatus.expired;
+          statusDisplay = "Đã hết hạn";
+        } else if (serverStatus == 'cancelled') {
+          statusEnum = TransactionStatus.cancelled;
+          statusDisplay = "Đã hủy";
+        } else {
+          // pending
+          statusEnum = TransactionStatus.pending;
+          statusDisplay = "Chờ nhận quà";
+        }
+
+        // 2. Xử lý Ngày tháng AN TOÀN (Tránh crash nếu null)
+        DateTime createdDate = DateTime.now();
+        if (item['createdAt'] != null) {
+          createdDate =
+              DateTime.tryParse(item['createdAt'].toString()) ?? DateTime.now();
+        }
+
+        DateTime expiresDate = createdDate.add(const Duration(days: 3));
+        if (item['expiresAt'] != null) {
+          expiresDate =
+              DateTime.tryParse(item['expiresAt'].toString()) ?? expiresDate;
+        }
+
+        // 3. Xử lý Mã Code (Hỗ trợ cả tên cũ và mới)
+        String transCode =
+            item['redemptionCode'] ?? item['rewardCode'] ?? 'N/A';
+
+        // 4. Map sang Object
+        mappedList.add(
+          TransactionItem(
+            id: transCode,
+            itemName: item['giftName'] ?? 'Quà tặng',
+            status: statusEnum,
+            statusText: statusDisplay,
+            role: "Đổi quà", // API này chuyên về đổi quà
+            price: "-${item['pointsSpent'] ?? 0} Điểm", // Fix lỗi hiển thị null
+            date: createdDate,
+            expiresAt: expiresDate,
+          ),
+        );
+      }
+
+      if (mounted) {
+        setState(() {
+          _transactionList = mappedList;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print("❌ Lỗi load lịch sử: $e");
+      if (mounted) {
+        setState(() {
+          _isLoading = false; // Tắt loading dù lỗi để không treo màn hình
+        });
+      }
+    }
+  }
+
+  // Hàm chọn ngày (Giữ nguyên)
   Future<void> _selectDate(
     BuildContext context,
     TextEditingController controller,
@@ -72,7 +183,7 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
   @override
   Widget build(BuildContext context) {
     // LOGIC LỌC DỮ LIỆU
-    final filteredList = transactionHistory.where((item) {
+    final filteredList = _transactionList.where((item) {
       // 1. Lọc theo Vai trò
       bool matchRole = _selectedRole == "All" || item.role == _selectedRole;
 
@@ -92,8 +203,10 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
               _toDate!.copyWith(hour: 23, minute: 59, second: 59),
             );
       }
+      bool isRedeemTransaction =
+          !item.id.startsWith("DAILY") && !item.id.startsWith("TASK");
 
-      return matchRole && matchDate;
+      return matchRole && matchDate && isRedeemTransaction;
     }).toList();
 
     return Scaffold(
@@ -133,151 +246,155 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
             ),
 
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // 1. THẺ THỐNG KÊ (Xanh đen)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 25,
-                        horizontal: 30,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2C2C54),
-                        borderRadius: BorderRadius.circular(15),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Colors.black26,
-                            blurRadius: 10,
-                            offset: Offset(0, 5),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : SingleChildScrollView(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            children: const [
-                              Icon(
-                                Icons.history,
-                                color: Colors.white,
-                                size: 30,
-                              ),
-                              SizedBox(width: 15),
-                              Text(
-                                "Giao dịch",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
+                          // 1. THẺ THỐNG KÊ
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 25,
+                              horizontal: 30,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF2C2C54),
+                              borderRadius: BorderRadius.circular(15),
+                              boxShadow: const [
+                                BoxShadow(
+                                  color: Colors.black26,
+                                  blurRadius: 10,
+                                  offset: Offset(0, 5),
                                 ),
-                              ),
-                            ],
-                          ),
-                          Text(
-                            "${filteredList.length}",
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 28,
-                              fontWeight: FontWeight.bold,
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  children: const [
+                                    Icon(
+                                      Icons.history,
+                                      color: Colors.white,
+                                      size: 30,
+                                    ),
+                                    SizedBox(width: 15),
+                                    Text(
+                                      "Giao dịch",
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 18,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                Text(
+                                  "${filteredList.length}",
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ],
-                      ),
-                    ),
 
-                    const SizedBox(height: 25),
+                          const SizedBox(height: 25),
 
-                    // 2. BỘ LỌC NGÀY
-                    _buildDateInput("Từ ngày", _fromDateController, true),
-                    const SizedBox(height: 15),
-                    _buildDateInput("Đến ngày", _toDateController, false),
+                          // 2. BỘ LỌC NGÀY
+                          _buildDateInput("Từ ngày", _fromDateController, true),
+                          const SizedBox(height: 15),
+                          _buildDateInput("Đến ngày", _toDateController, false),
 
-                    const SizedBox(height: 20),
+                          const SizedBox(height: 20),
 
-                    // 3. BỘ LỌC LOẠI GIAO DỊCH
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          const Text(
-                            "Loại giao dịch",
-                            style: TextStyle(fontWeight: FontWeight.w500),
-                          ),
-                          const SizedBox(width: 15),
-                          _buildFilterChip(
-                            "Bên mua",
-                            Colors.red[100]!,
-                            Colors.red[900]!,
-                          ),
-                          const SizedBox(width: 10),
-                          _buildFilterChip(
-                            "Bên bán",
-                            Colors.blue[100]!,
-                            Colors.blue[900]!,
-                          ),
-                          const SizedBox(width: 10),
-                          _buildFilterChip(
-                            "Đổi quà",
-                            Colors.orange[100]!,
-                            Colors.orange[900]!,
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 15),
-
-                    // Nút "Hiển thị tất cả"
-                    GestureDetector(
-                      onTap: () => setState(() => _selectedRole = "All"),
-                      child: Row(
-                        children: [
-                          Icon(
-                            _selectedRole == "All"
-                                ? Icons.radio_button_checked
-                                : Icons.radio_button_unchecked,
-                            size: 24,
-                            color: _selectedRole == "All"
-                                ? const Color(0xFFB71C1C)
-                                : Colors.grey,
-                          ),
-                          const SizedBox(width: 10),
-                          const Text(
-                            "Hiển thị tất cả giao dịch",
-                            style: TextStyle(fontWeight: FontWeight.w500),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 20),
-                    const Divider(thickness: 1, color: Colors.black12),
-                    const SizedBox(height: 10),
-
-                    // 4. DANH SÁCH GIAO DỊCH
-                    filteredList.isEmpty
-                        ? const Center(
-                            child: Padding(
-                              padding: EdgeInsets.only(top: 50),
-                              child: Text(
-                                "Chưa có giao dịch nào.",
-                                style: TextStyle(color: Colors.grey),
-                              ),
+                          // 3. BỘ LỌC LOẠI GIAO DỊCH
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: [
+                                const Text(
+                                  "Loại giao dịch",
+                                  style: TextStyle(fontWeight: FontWeight.w500),
+                                ),
+                                const SizedBox(width: 15),
+                                _buildFilterChip(
+                                  "Bên mua",
+                                  Colors.red[100]!,
+                                  Colors.red[900]!,
+                                ),
+                                const SizedBox(width: 10),
+                                _buildFilterChip(
+                                  "Bên bán",
+                                  Colors.blue[100]!,
+                                  Colors.blue[900]!,
+                                ),
+                                const SizedBox(width: 10),
+                                _buildFilterChip(
+                                  "Đổi quà",
+                                  Colors.orange[100]!,
+                                  Colors.orange[900]!,
+                                ),
+                              ],
                             ),
-                          )
-                        : ListView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: filteredList.length,
-                            itemBuilder: (context, index) =>
-                                _buildTransactionCard(filteredList[index]),
                           ),
-                    const SizedBox(height: 50),
-                  ],
-                ),
-              ),
+
+                          const SizedBox(height: 15),
+
+                          // Nút "Hiển thị tất cả"
+                          GestureDetector(
+                            onTap: () => setState(() => _selectedRole = "All"),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  _selectedRole == "All"
+                                      ? Icons.radio_button_checked
+                                      : Icons.radio_button_unchecked,
+                                  size: 24,
+                                  color: _selectedRole == "All"
+                                      ? const Color(0xFFB71C1C)
+                                      : Colors.grey,
+                                ),
+                                const SizedBox(width: 10),
+                                const Text(
+                                  "Hiển thị tất cả giao dịch",
+                                  style: TextStyle(fontWeight: FontWeight.w500),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(height: 20),
+                          const Divider(thickness: 1, color: Colors.black12),
+                          const SizedBox(height: 10),
+
+                          // 4. DANH SÁCH GIAO DỊCH
+                          filteredList.isEmpty
+                              ? const Center(
+                                  child: Padding(
+                                    padding: EdgeInsets.only(top: 50),
+                                    child: Text(
+                                      "Chưa có giao dịch nào.",
+                                      style: TextStyle(color: Colors.grey),
+                                    ),
+                                  ),
+                                )
+                              : ListView.builder(
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  itemCount: filteredList.length,
+                                  itemBuilder: (context, index) =>
+                                      _buildTransactionCard(
+                                        filteredList[index],
+                                      ),
+                                ),
+                          const SizedBox(height: 50),
+                        ],
+                      ),
+                    ),
             ),
           ],
         ),
@@ -344,9 +461,7 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
         decoration: BoxDecoration(
           color: isSelected ? bg : Colors.grey[200],
           borderRadius: BorderRadius.circular(20),
-          border: isSelected
-              ? Border.all(color: text.withValues(alpha: 0.5))
-              : null,
+          border: isSelected ? Border.all(color: text.withOpacity(0.5)) : null,
         ),
         child: Text(
           label,
@@ -360,29 +475,31 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
     );
   }
 
-  // --- Widget Thẻ Giao Dịch (Thiết kế giống ảnh) ---
+  // --- Widget Thẻ Giao Dịch ---
   Widget _buildTransactionCard(TransactionItem item) {
     // Xác định màu trạng thái
     Color statusColor = Colors.green;
-    String statusText = "Đã hoàn thành";
 
+    // Logic màu sắc dựa trên trạng thái thật từ API
     if (item.status == TransactionStatus.pending) {
-      statusColor = Colors.red;
-      statusText = "Chưa trao đổi/bán"; // Giống ảnh mẫu
+      statusColor = Colors.orange; // Chờ nhận
+    } else if (item.status == TransactionStatus.completed) {
+      statusColor = Colors.green; // Đã xong
+    } else if (item.status == TransactionStatus.expired) {
+      statusColor = Colors.grey; // Hết hạn
     } else if (item.status == TransactionStatus.cancelled) {
-      statusColor = Colors.grey;
-      statusText = "Đã hủy";
+      statusColor = Colors.red; // Hủy
     }
 
     return Container(
       margin: const EdgeInsets.only(bottom: 20),
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
-        color: const Color(0xFFFCE4EC), // Màu nền hồng phấn nhạt như thiết kế
+        color: const Color(0xFFFCE4EC),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
+            color: Colors.black.withOpacity(0.05),
             blurRadius: 10,
             offset: const Offset(0, 5),
           ),
@@ -390,21 +507,34 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
       ),
       child: Column(
         children: [
-          _buildRowInfo("Mã giao dịch", item.id),
+          _buildRowInfo("Mã giao dịch", item.id), // Hiển thị mã Code đổi quà
           const SizedBox(height: 10),
-          _buildRowInfo("Tên món", item.itemName), // Thêm dòng này cho rõ nghĩa
+          _buildRowInfo("Tên món", item.itemName),
           const SizedBox(height: 10),
-          _buildRowInfo("Trạng thái", statusText, valueColor: statusColor),
+          _buildRowInfo("Trạng thái", item.statusText, valueColor: statusColor),
           const SizedBox(height: 10),
+          if (item.status == TransactionStatus.pending) ...[
+            _buildRowInfo(
+              "Hạn nhận",
+              "${item.expiresAt.day}/${item.expiresAt.month}/${item.expiresAt.year} ${item.expiresAt.hour}:${item.expiresAt.minute.toString().padLeft(2, '0')}",
+              valueColor: Colors.deepOrange,
+            ),
+            const SizedBox(height: 10),
+          ],
           _buildRowInfo("Vai trò", item.role),
           const SizedBox(height: 10),
-          _buildRowInfo("Giá tiền", item.price),
+          _buildRowInfo("Chi phí", item.price),
+          const SizedBox(height: 10),
+          _buildRowInfo(
+            "Ngày tạo",
+            "${item.date.day}/${item.date.month}/${item.date.year}",
+          ),
         ],
       ),
     );
   }
 
-  // Helper tạo dòng thông tin trong ô trắng
+  // Helper tạo dòng thông tin
   Widget _buildRowInfo(String label, String value, {Color? valueColor}) {
     return Row(
       children: [
@@ -423,7 +553,7 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
-              color: Colors.white, // Nền trắng cho ô input giả
+              color: Colors.white,
               borderRadius: BorderRadius.circular(10),
             ),
             child: Text(

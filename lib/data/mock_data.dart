@@ -32,6 +32,7 @@ class UserData {
   static String gender = "Nam";
   static String phone = "";
   static String dateOfBirth = "";
+  static int videosWatchedToday = 0;
 
   // Lịch sử điểm danh
   static List<String> attendanceHistory = [];
@@ -482,6 +483,7 @@ class ChatMessage {
 }
 
 class ChatUser {
+  final String id;
   final String name;
   final String messageText;
   final String image;
@@ -489,6 +491,7 @@ class ChatUser {
   final bool isOnline; // Trạng thái online
 
   ChatUser({
+    required this.id,
     required this.name,
     required this.messageText,
     required this.image,
@@ -525,6 +528,7 @@ List<ChatMessage> mockMessages = [
 // Danh sách các cuộc hội thoại (Danh sách bạn bè)
 List<ChatUser> chatUsers = [
   ChatUser(
+    id: "65bf1234567890abcdef1234",
     name: "Trần Văn A",
     messageText: "Mình bớt 10k tiền xăng xe...",
     image: "https://i.pravatar.cc/150?u=1",
@@ -532,6 +536,7 @@ List<ChatUser> chatUsers = [
     isOnline: true,
   ),
   ChatUser(
+    id: "65bf1234567890abcdef1235",
     name: "Lê Thị B",
     messageText: "Cảm ơn bạn nhiều nhé!",
     image: "https://i.pravatar.cc/150?u=2",
@@ -539,6 +544,7 @@ List<ChatUser> chatUsers = [
     isOnline: false,
   ),
   ChatUser(
+    id: "65bf1234567890abcdef1236",
     name: "Nguyễn Văn C",
     messageText: "Khi nào rảnh qua lấy sách?",
     image: "https://i.pravatar.cc/150?u=3",
@@ -581,7 +587,8 @@ final List<NotificationItem> mockNotifications = [
   ),
   NotificationItem(
     title: "Chào mừng thành viên mới",
-    content: "Chào mừng bạn gia nhập cộng đồng Eco App. Hãy cùng nhau bảo vệ môi trường nhé!",
+    content:
+        "Chào mừng bạn gia nhập cộng đồng Eco App. Hãy cùng nhau bảo vệ môi trường nhé!",
     time: "1 ngày trước",
     isRead: true,
     type: "system",

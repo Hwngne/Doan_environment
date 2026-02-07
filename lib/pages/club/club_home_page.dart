@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import '../../services/user_service.dart';
-import '../../data/mock_data.dart' hide UserData;
+import '../../services/earn_service.dart';
 import '../common/news_detail_page.dart';
 import '../../components/banner_slider.dart';
 import '../common/notification_page.dart';
 import '../club/create_event_page.dart';
+import '../common/earn_points_page.dart';
 
 class ClubHomePage extends StatefulWidget {
   const ClubHomePage({super.key});
@@ -14,8 +15,43 @@ class ClubHomePage extends StatefulWidget {
 }
 
 class _ClubHomePageState extends State<ClubHomePage> {
+  List<dynamic> _homeArticles = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _initData();
+  }
+  // --- THÊM HÀM NÀY VÀO CLASS ---
+  Future<void> _fetchUserData() async {
+    try {
+      await UserService.fetchUserInfo(); 
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (e) {
+      print("Lỗi cập nhật thông tin: $e");
+    }
+  }
+
+  Future<void> _initData() async {
+    await UserService.fetchUserInfo();
+    final res = await EarnService.getArticles();
+
+    if (mounted) {
+      setState(() {
+        List all = res['articles'] ?? [];
+        _homeArticles = all
+            .where((item) => (item['displayType']) == 'home')
+            .toList();
+        _isLoading = false;
+      });
+    }
+  }
+
   void _refreshData() {
-    setState(() {});
+    _initData();
   }
 
   @override
@@ -23,7 +59,7 @@ class _ClubHomePageState extends State<ClubHomePage> {
     final size = MediaQuery.of(context).size;
     final double screenHeight = size.height;
 
-    // Fix lỗi hiển thị null: Nếu chưa có tên thì hiện giá trị mặc định
+    // Dùng UserData thật
     final String displayName = UserData.name ?? "Câu Lạc Bộ";
     final int displayPoints = UserData.points ?? 0;
     final String displayAvatar = UserData.avatar ?? "https://i.pravatar.cc/300";
@@ -33,7 +69,7 @@ class _ClubHomePageState extends State<ClubHomePage> {
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // HEADER
+            // HEADER ĐỎ (GIỮ NGUYÊN)
             Stack(
               clipBehavior: Clip.none,
               alignment: Alignment.bottomCenter,
@@ -88,16 +124,13 @@ class _ClubHomePageState extends State<ClubHomePage> {
                           ],
                         ),
                       ),
-                      // Nút thông báo
                       GestureDetector(
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const NotificationPage(),
-                            ),
-                          );
-                        },
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (c) => const NotificationPage(),
+                          ),
+                        ),
                         child: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
@@ -114,54 +147,65 @@ class _ClubHomePageState extends State<ClubHomePage> {
                     ],
                   ),
                 ),
-
-                // THẺ ĐIỂM NỔI
                 Positioned(
                   bottom: -30,
                   left: 20,
                   right: 20,
-                  child: Container(
-                    height: 80,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1A237E),
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Colors.black26,
-                          blurRadius: 15,
-                          offset: Offset(0, 10),
+                  child: GestureDetector(
+                    onTap: () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (c) => const EarnPointsPage(),
                         ),
-                      ],
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Text(
-                          "Điểm hoạt động CLB",
-                          style: TextStyle(color: Colors.white70, fontSize: 12),
-                        ),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              "$displayPoints", // Đã fix null
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                              ),
+                      );
+                      _refreshData();
+                    },
+                    child: Container(
+                      height: 80,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1A237E),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Colors.black26,
+                            blurRadius: 15,
+                            offset: Offset(0, 10),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Text(
+                            "Điểm tích lũy",
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
                             ),
-                            const SizedBox(width: 4),
-                            const Text("💎", style: TextStyle(fontSize: 18)),
-                          ],
-                        ),
-                      ],
+                          ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                "$displayPoints",
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const Text("💎", style: TextStyle(fontSize: 18)),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ],
             ),
-
             SizedBox(height: screenHeight * 0.08),
 
             // NỘI DUNG DƯỚI
@@ -175,15 +219,15 @@ class _ClubHomePageState extends State<ClubHomePage> {
                   ),
                   const SizedBox(height: 35),
 
-                  // NÚT TẠO SỰ KIỆN
                   GestureDetector(
-                    onTap: () {
-                      Navigator.push(
+                    onTap: () async {
+                      await Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => const CreateEventPage(),
+                          builder: (c) => const CreateEventPage(),
                         ),
                       );
+                      _fetchUserData();
                     },
                     child: Container(
                       width: double.infinity,
@@ -220,77 +264,102 @@ class _ClubHomePageState extends State<ClubHomePage> {
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 30),
 
-                  // TIN TỨC
-                  ...newsData.map(
-                    (item) => GestureDetector(
-                      onTap: () async {
-                        await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => NewsDetailPage(item: item),
+                  // LIST TIN TỨC API
+                  if (_isLoading)
+                    const Center(child: CircularProgressIndicator())
+                  else if (_homeArticles.isNotEmpty)
+                    ..._homeArticles.map(
+                      (item) => GestureDetector(
+                        onTap: () async {
+                          String articleId = item['_id'] is Map
+                              ? item['_id']['\$oid']
+                              : item['_id'].toString();
+                          String? quizId;
+                          if (item['quiz'] != null) {
+                            quizId = item['quiz'] is Map
+                                ? item['quiz']['\$oid']
+                                : item['quiz'].toString();
+                          }
+
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => NewsDetailPage(
+                                id: articleId,
+                                title: item['title'],
+                                content: item['content'] ?? "",
+                                imageUrl: item['thumbnail'] ?? "",
+                                displayType: "home",
+                                quizId: quizId,
+                              ),
+                            ),
+                          );
+                          _refreshData();
+                        },
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 15),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(15),
+                            boxShadow: const [
+                              BoxShadow(color: Colors.black12, blurRadius: 5),
+                            ],
                           ),
-                        );
-                        _refreshData();
-                      },
-                      child: Container(
-                        margin: const EdgeInsets.only(bottom: 15),
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(15),
-                          boxShadow: const [
-                            BoxShadow(color: Colors.black12, blurRadius: 5),
-                          ],
-                        ),
-                        child: Row(
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(10),
-                              child: Image.network(
-                                item.image,
-                                width: 80,
-                                height: 80,
-                                fit: BoxFit.cover,
-                                errorBuilder: (c, e, s) => Container(
+                          child: Row(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: Image.network(
+                                  item['thumbnail'] ?? "",
                                   width: 80,
                                   height: 80,
-                                  color: Colors.grey[300],
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (c, e, s) => Container(
+                                    width: 80,
+                                    height: 80,
+                                    color: Colors.grey[300],
+                                    child: const Icon(
+                                      Icons.broken_image,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(width: 15),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    item.title,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 15,
+                              const SizedBox(width: 15),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      item['title'],
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 15,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
-                                    maxLines: 2,
-                                  ),
-                                  const SizedBox(height: 5),
-                                  Text(
-                                    item.desc,
-                                    style: const TextStyle(
-                                      color: Colors.grey,
-                                      fontSize: 12,
+                                    const SizedBox(height: 5),
+                                    Text(
+                                      "Tin tức & Sự kiện",
+                                      style: const TextStyle(
+                                        color: Colors.grey,
+                                        fontSize: 12,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
-                                    maxLines: 2,
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
                   const SizedBox(height: 100),
                 ],
               ),
